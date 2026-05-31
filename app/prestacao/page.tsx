@@ -1,0 +1,2 @@
+import ModulePage from '@/components/ModulePage';
+export default function PrestacaoPage(){return <ModulePage title="Prestação de Contas" subtitle="Comprovantes, relatórios, pendências, prazos e validações para reduzir risco de glosa." items={['Comprovantes por rubrica','Relatórios parciais e finais','Checklist de prestação','Alertas de pendências','Histórico de validações','Exportação PDF']} kpis={[["Prestações abertas","18"],["Em dia","91%"],["Pendências críticas","5"],["Finalizadas","42"]]} />}

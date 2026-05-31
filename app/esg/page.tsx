@@ -1,0 +1,2 @@
+import ModulePage from '@/components/ModulePage';
+export default function ESGPage(){return <ModulePage title="Impacto e ESG" subtitle="Indicadores sociais, ODS, beneficiários, relatórios para empresas apoiadoras e impacto territorial." items={['Beneficiários diretos','ODS vinculados','Relatório ESG executivo','Mapa de impacto','Indicadores por projeto','Downloads para empresas']} kpis={[["Beneficiários","4.820"],["Projetos ESG","26"],["Relatórios","37"],["ODS ativos","9"]]} />}

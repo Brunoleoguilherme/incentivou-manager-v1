@@ -1,0 +1,7 @@
+@"
+node_modules/
+.next/
+.env
+.env.local
+.vercel/
+"@ | Out-File -Encoding utf8 .gitignore

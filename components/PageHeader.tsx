@@ -1,0 +1,1 @@
+export default function PageHeader({title,subtitle}:{title:string,subtitle:string}){return <div className="mb-8 rounded-[2rem] bg-gradient-to-r from-verde via-teal-500 to-azul p-8 text-white shadow"><h2 className="text-3xl font-black">{title}</h2><p className="mt-2 max-w-4xl text-white/90">{subtitle}</p></div>}
