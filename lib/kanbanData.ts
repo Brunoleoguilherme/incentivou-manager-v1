@@ -58,8 +58,9 @@ export const portalConfig = {
 export const portalMenus = {
   admin: [
     { label: 'Visão Geral', href: '/admin', icon: LayoutDashboard },
-    { label: 'Kanban Operacional', href: '/admin/kanban', icon: FolderKanban },
-    { label: 'Projetos', href: '/projetos', icon: FileText },
+    { label: 'CRM', href: '/admin/kanban', icon: FolderKanban },
+{ label: 'Leads', href: '/admin/leads', icon: Users },
+{ label: 'Projetos', href: '/projetos', icon: FileText },
     { label: 'Executores', href: '/admin/executores', icon: Users },
     { label: 'Empresas', href: '/admin/empresas', icon: Building2 },
     { label: 'Compliance', href: '/admin/compliance', icon: ShieldCheck },

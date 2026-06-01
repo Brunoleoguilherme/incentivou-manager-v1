@@ -77,7 +77,7 @@ export default function PortalDashboard({ portal }: { portal: PortalType }) {
         <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
           <div className="mb-5 flex items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Kanban operacional</p>
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700"></p>
               <h3 className="text-2xl font-black text-slate-950">Boards integrados</h3>
             </div>
             <Link href={kanbanHref} className="text-sm font-black text-emerald-700">Abrir board</Link>
