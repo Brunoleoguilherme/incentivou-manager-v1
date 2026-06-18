@@ -11,6 +11,7 @@ import {
   Landmark,
   LayoutDashboard,
   LineChart,
+  Mail,
   Megaphone,
   ShieldCheck,
   Sparkles,
@@ -18,6 +19,8 @@ import {
   UploadCloud,
   Users,
   Wallet,
+  UserCheck,
+  UserCircle,
 } from 'lucide-react';
 
 export type PortalType = 'admin' | 'executor' | 'empresa';
@@ -57,30 +60,39 @@ export const portalConfig = {
 
 export const portalMenus = {
   admin: [
-    { label: 'Visão Geral', href: '/admin', icon: LayoutDashboard },
-    { label: 'CRM', href: '/admin/kanban', icon: FolderKanban },
-{ label: 'Leads', href: '/admin/leads', icon: Users },
-{ label: 'Projetos', href: '/projetos', icon: FileText },
-    { label: 'Executores', href: '/admin/executores', icon: Users },
-    { label: 'Empresas', href: '/admin/empresas', icon: Building2 },
-    { label: 'Compliance', href: '/admin/compliance', icon: ShieldCheck },
-    { label: 'Relatórios', href: '/relatorios', icon: BarChart3 },
-  ],
+  { label: 'Visão Geral', href: '/admin', icon: LayoutDashboard },
+  { label: 'CRM', href: '/admin/kanban', icon: FolderKanban },
+  { label: 'Leads', href: '/admin/leads', icon: Users },
+
+  { label: 'Projetos', href: '/admin/projetos', icon: FileText },
+
+  { label: 'Usuários', href: '/admin/usuarios', icon: Users },
+
+  { label: 'Executores', href: '/admin/executores', icon: Users },
+  { label: 'Empresas', href: '/admin/empresas', icon: Building2 },
+
+  { label: 'Compliance', href: '/admin/compliance', icon: ShieldCheck },
+  { label: 'Relatórios', href: '/admin/relatorios', icon: BarChart3 },
+],
   executor: [
     { label: 'Visão Geral', href: '/executor', icon: LayoutDashboard },
-    { label: 'Meu Kanban', href: '/executor/kanban', icon: FolderKanban },
+    { label: 'Projetos', href: '/executor/projetos', icon: FileText },
     { label: 'Diagnóstico', href: '/executor/diagnostico', icon: FileCheck2 },
-    { label: 'Documentos', href: '/documentos', icon: UploadCloud },
-    { label: 'Execução Segura', href: '/execucao', icon: ShieldCheck },
-    { label: 'Prestação', href: '/prestacao-contas', icon: ClipboardCheck },
+    { label: 'Documentos', href: '/executor/documentos', icon: UploadCloud },
+    { label: 'Execução Segura', href: '/executor/execucao', icon: ShieldCheck },
+    { label: 'Beneficiários', href: '/executor/beneficiarios', icon: UserCheck },
+    { label: 'Metas', href: '/executor/metas', icon: Target },
+    { label: 'Prestação de Contas', href: '/executor/prestacao-contas', icon: ClipboardCheck },
+    { label: 'Comunicação', href: 'mailto:ester@incentivou.com.br', icon: Mail },
+    { label: 'Relatórios', href: '/executor/relatorios', icon: BarChart3 },
   ],
   empresa: [
     { label: 'Visão Geral', href: '/empresa', icon: LayoutDashboard },
-    { label: 'Simulador', href: '/simulador', icon: Landmark },
-    { label: 'Marketplace', href: '/marketplace', icon: Target },
+    { label: 'Meu Perfil', href: '/empresa/perfil', icon: UserCircle },
+    { label: 'Marketplace', href: '/empresa/marketplace', icon: Target },
     { label: 'Projetos Apoiados', href: '/empresa/projetos', icon: Handshake },
-    { label: 'Impacto ESG', href: '/impacto-esg', icon: LineChart },
-    { label: 'Relatórios', href: '/relatorios', icon: BarChart3 },
+    { label: 'Impacto ESG', href: '/empresa/impacto-esg', icon: LineChart },
+    { label: 'Relatórios', href: '/empresa/relatorios', icon: BarChart3 },
   ],
 };
 
@@ -177,5 +189,5 @@ export const alerts = [
   { title: 'Certidões vencendo', description: '3 proponentes precisam atualizar documentação esta semana.', icon: ShieldCheck },
   { title: 'SLA de formulário', description: '5 leads estão parados há mais de 48h sem resposta.', icon: Megaphone },
   { title: 'Prestação crítica', description: '2 projetos exigem conferência de comprovantes antes do fechamento.', icon: ClipboardCheck },
-  { title: 'Oportunidade de captação', description: 'Empresa com potencial fiscal alto combinou com 4 projetos.', icon: Sparkles },
+  { title: 'Oportunidade de captacao', description: 'Empresa com potencial fiscal alto combinou com 4 projetos.', icon: Sparkles },
 ];

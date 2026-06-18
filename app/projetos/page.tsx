@@ -1,5 +1,9 @@
-import ProjectsManager from '@/components/ProjectsManager';
+'use client';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
-export default function ProjetosPage() {
-  return <ProjectsManager portal="admin" />;
+export default function Page() {
+  const router = useRouter();
+  useEffect(() => { router.replace('/executor/projetos'); }, [router]);
+  return null;
 }

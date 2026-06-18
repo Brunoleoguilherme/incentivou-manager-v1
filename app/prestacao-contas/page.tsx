@@ -1,1176 +1,438 @@
-// @ts-nocheck
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useEffect, useState, useMemo } from 'react';
 import {
-  Trophy, Bell, LogOut, ArrowLeft, Plus, Search, Filter,
-  ClipboardCheck, CheckCircle2, AlertTriangle, Upload, Download,
-  Pencil, Trash2, X, Save, Calendar, FileText, Building2,
-  UserRound, Clock, Wallet, ImageIcon, ReceiptText, FileCheck2,
+  AlertTriangle, CheckCircle2, Clock3, Download, FileText,
+  Plus, Search, UploadCloud, X, Trash2, ExternalLink,
 } from 'lucide-react';
+import PortalShell from '@/components/PortalShell';
+import { supabase } from '@/lib/supabaseClient';
 
-const STORAGE_KEY = 'incentivou_prestacao_contas';
+type Doc = {
+  id: string; projeto_id: string | null; tipo: string; descricao: string | null;
+  responsavel: string | null; fornecedor: string | null; status: string | null;
+  valor: number | null; prazo: string | null; observacoes: string | null; url: string | null;
+};
+type Projeto = { id: string; nome: string };
 
-const statusOptions = [
-  'Em andamento',
-  'Pendente',
-  'Em análise',
-  'Aprovada',
-  'Risco de glosa',
-  'Reprovada',
-];
+type Form = {
+  projeto_id: string; tipo: string; descricao: string; responsavel: string;
+  fornecedor: string; status: string; valor: string; prazo: string; observacoes: string;
+};
 
-const tipoOptions = [
-  'Nota fiscal',
-  'Comprovante bancário',
-  'Relatório de execução',
-  'Foto/evidência',
-  'Contrato',
-  'Recibo',
-  'Documento complementar',
-];
+const TIPOS   = ['Nota fiscal','Comprovante bancario','Relatorio de execucao','Foto/evidencia','Contrato','Recibo','Documento complementar'];
+const STATUSS = ['pendente','em_andamento','em_analise','aprovado','risco_glosa','reprovado'];
 
-const iniciais = [
-  {
-    id: '1',
-    projeto: 'Projeto Esporte para Todos',
-    tipo: 'Nota fiscal',
-    descricao: 'Notas fiscais de materiais esportivos.',
-    responsavel: 'Financeiro',
-    fornecedor: 'Fornecedor Alpha',
-    status: 'Em análise',
-    valor: 42000,
-    prazo: '2026-06-30',
-    observacoes: 'Aguardando validação documental.',
-  },
-  {
-    id: '2',
-    projeto: 'Formação Olímpica Comunitária',
-    tipo: 'Foto/evidência',
-    descricao: 'Fotos das atividades realizadas no mês.',
-    responsavel: 'Operações',
-    fornecedor: 'Equipe Interna',
-    status: 'Pendente',
-    valor: 0,
-    prazo: '2026-06-18',
-    observacoes: 'Equipe precisa anexar evidências.',
-  },
-];
+const STATUS_META: Record<string,{ label: string; cls: string; dot: string }> = {
+  pendente:    { label: 'Pendente',       cls: 'bg-slate-100 text-slate-600',   dot: 'bg-slate-400'   },
+  em_andamento:{ label: 'Em andamento',   cls: 'bg-blue-100 text-blue-700',     dot: 'bg-blue-500'    },
+  em_analise:  { label: 'Em analise',     cls: 'bg-amber-100 text-amber-700',   dot: 'bg-amber-400'   },
+  aprovado:    { label: 'Aprovado',       cls: 'bg-emerald-100 text-emerald-700',dot: 'bg-emerald-500' },
+  risco_glosa: { label: 'Risco de glosa', cls: 'bg-red-100 text-red-700',       dot: 'bg-red-500'     },
+  reprovado:   { label: 'Reprovado',      cls: 'bg-rose-100 text-rose-700',     dot: 'bg-rose-500'    },
+};
 
-function moeda(valor) {
-  return Number(valor || 0).toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  });
-}
+const fmt = (v: number) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v);
 
-function dataBR(data) {
-  if (!data) return '-';
-  return new Date(`${data}T12:00:00`).toLocaleDateString('pt-BR');
-}
+const fmtDate = (d?: string | null) =>
+  d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '—';
+
+const diasRestantes = (prazo?: string | null) => {
+  if (!prazo) return null;
+  return Math.ceil((new Date(prazo).getTime() - Date.now()) / 86400000);
+};
+
+const FORM0: Form = {
+  projeto_id: '', tipo: 'Nota fiscal', descricao: '', responsavel: '',
+  fornecedor: '', status: 'pendente', valor: '', prazo: '', observacoes: '',
+};
 
 export default function PrestacaoContasPage() {
-  const router = useRouter();
-  const fileInputRef = useRef(null);
+  const [docs, setDocs]           = useState<Doc[]>([]);
+  const [projetos, setProjetos]   = useState<Projeto[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [busca, setBusca]         = useState('');
+  const [filtroStatus, setFiltroStatus]   = useState('todos');
+  const [filtroProjeto, setFiltroProjeto] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [editando, setEditando]   = useState<Doc | null>(null);
+  const [salvando, setSalvando]   = useState(false);
+  const [form, setForm]           = useState<Form>(FORM0);
+  const [uploading, setUploading] = useState(false);
+  const [uploadUrl, setUploadUrl] = useState('');
 
-  const [usuario, setUsuario] = useState(null);
-  const [dados, setDados] = useState([]);
-  const [busca, setBusca] = useState('');
-  const [filtroStatus, setFiltroStatus] = useState('Todos');
-  const [modalAberto, setModalAberto] = useState(false);
-  const [editandoId, setEditandoId] = useState(null);
-
-  const [form, setForm] = useState({
-    projeto: '',
-    tipo: 'Nota fiscal',
-    descricao: '',
-    responsavel: '',
-    fornecedor: '',
-    status: 'Em andamento',
-    valor: '',
-    prazo: '',
-    observacoes: '',
-  });
-
-  useEffect(() => {
-    const salvo = localStorage.getItem('incentivou_usuario');
-
-    if (!salvo) {
-      router.push('/login');
-      return;
-    }
-
-    setUsuario(JSON.parse(salvo));
-
-    const salvos = localStorage.getItem(STORAGE_KEY);
-
-    if (salvos) {
-      setDados(JSON.parse(salvos));
-    } else {
-      setDados(iniciais);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(iniciais));
-    }
-  }, [router]);
-
-  useEffect(() => {
-    if (dados.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(dados));
-    }
-  }, [dados]);
-
-  const filtrados = useMemo(() => {
-    return dados.filter((item) => {
-      const texto = `${item.projeto} ${item.tipo} ${item.descricao} ${item.responsavel} ${item.fornecedor} ${item.status}`.toLowerCase();
-      const buscaOk = texto.includes(busca.toLowerCase());
-      const statusOk = filtroStatus === 'Todos' || item.status === filtroStatus;
-      return buscaOk && statusOk;
-    });
-  }, [dados, busca, filtroStatus]);
-
-  const metricas = useMemo(() => ({
-    andamento: dados.filter((p) => p.status === 'Em andamento' || p.status === 'Em análise').length,
-    pendentes: dados.filter((p) => p.status === 'Pendente').length,
-    aprovadas: dados.filter((p) => p.status === 'Aprovada').length,
-    risco: dados.filter((p) => p.status === 'Risco de glosa' || p.status === 'Reprovada').length,
-    totalValor: dados.reduce((acc, p) => acc + Number(p.valor || 0), 0),
-    totalItens: dados.length,
-  }), [dados]);
-
-  function sair() {
-    localStorage.removeItem('incentivou_usuario');
-    router.push('/login');
+  async function carregar() {
+    if (!supabase) { setLoading(false); return; }
+    const [dRes, pRes] = await Promise.all([
+      supabase.from('manager_prestacao_docs')
+        .select('id,projeto_id,tipo,descricao,responsavel,fornecedor,status,valor,prazo,observacoes,url')
+        .order('created_at', { ascending: false }),
+      supabase.from('manager_projetos').select('id,nome').order('nome'),
+    ]);
+    setDocs((dRes.data || []) as Doc[]);
+    setProjetos(pRes.data || []);
+    setLoading(false);
   }
 
-  function limparForm() {
+  useEffect(() => { carregar(); }, []);
+
+  const filtrados = useMemo(() => docs.filter((d) => {
+    const proj = projetos.find((p) => p.id === d.projeto_id)?.nome || '';
+    const txt  = `${d.tipo} ${d.descricao} ${d.responsavel} ${d.fornecedor} ${proj}`.toLowerCase();
+    const bOk  = txt.includes(busca.toLowerCase());
+    const sOk  = filtroStatus === 'todos' || d.status === filtroStatus;
+    const pOk  = !filtroProjeto || d.projeto_id === filtroProjeto;
+    return bOk && sOk && pOk;
+  }), [docs, busca, filtroStatus, filtroProjeto, projetos]);
+
+  const totalValor    = filtrados.reduce((s, d) => s + Number(d.valor || 0), 0);
+  const aprovados     = filtrados.filter((d) => d.status === 'aprovado');
+  const riscos        = filtrados.filter((d) => d.status === 'risco_glosa' || d.status === 'reprovado');
+  const pendentes     = filtrados.filter((d) => d.status === 'pendente');
+  const vencendo      = filtrados.filter((d) => { const dias = diasRestantes(d.prazo); return dias !== null && dias <= 7 && dias >= 0; });
+  const vencidos      = filtrados.filter((d) => { const dias = diasRestantes(d.prazo); return dias !== null && dias < 0 && d.status !== 'aprovado'; });
+
+  function abrirNovo()     { setEditando(null); setForm(FORM0); setUploadUrl(''); setShowModal(true); }
+  function abrirEditar(d: Doc) {
+    setEditando(d);
     setForm({
-      projeto: '',
-      tipo: 'Nota fiscal',
-      descricao: '',
-      responsavel: '',
-      fornecedor: '',
-      status: 'Em andamento',
-      valor: '',
-      prazo: '',
-      observacoes: '',
+      projeto_id: d.projeto_id || '', tipo: d.tipo, descricao: d.descricao || '',
+      responsavel: d.responsavel || '', fornecedor: d.fornecedor || '',
+      status: d.status || 'pendente', valor: String(d.valor || ''),
+      prazo: d.prazo || '', observacoes: d.observacoes || '',
     });
-    setEditandoId(null);
+    setUploadUrl(d.url || '');
+    setShowModal(true);
   }
 
-  function abrirNovo() {
-    limparForm();
-    setModalAberto(true);
-  }
-
-  function abrirEditar(item) {
-    setEditandoId(item.id);
-    setForm({ ...item });
-    setModalAberto(true);
-  }
-
-  function salvar(e) {
-    e.preventDefault();
-
-    if (!form.projeto || !form.descricao) {
-      alert('Preencha o projeto e a descrição.');
-      return;
-    }
-
-    const payload = {
-      ...form,
-      valor: Number(form.valor || 0),
-    };
-
-    if (editandoId) {
-      setDados((prev) => prev.map((p) => (p.id === editandoId ? { ...p, ...payload } : p)));
-    } else {
-      setDados((prev) => [{ id: crypto.randomUUID(), ...payload }, ...prev]);
-    }
-
-    setModalAberto(false);
-    limparForm();
-  }
-
-  function excluir(id) {
-    if (!confirm('Deseja excluir este item da prestação de contas?')) return;
-    setDados((prev) => prev.filter((p) => p.id !== id));
-  }
-
-  function baixarModelo() {
-    const csv = [
-      'Projeto;Tipo;Descricao;Responsavel;Fornecedor;Status;Valor;Prazo;Observacoes',
-      'Projeto Exemplo;Nota fiscal;Descrição do documento;Responsável;Fornecedor;Em andamento;0;2026-12-31;Observações',
-    ].join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-
-    link.href = url;
-    link.download = 'modelo-prestacao-contas-incentivou.csv';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    URL.revokeObjectURL(url);
-  }
-
-  function importarPlanilha(e) {
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
-    alert(`Arquivo selecionado para importação: ${file.name}`);
-    e.target.value = '';
+    if (!file || !supabase) return;
+    setUploading(true);
+    const path = `prestacao/${Date.now()}_${file.name}`;
+    const { data, error } = await supabase.storage.from('documentos').upload(path, file, { upsert: true });
+    if (!error && data) {
+      const { data: pub } = supabase.storage.from('documentos').getPublicUrl(data.path);
+      setUploadUrl(pub.publicUrl);
+    }
+    setUploading(false);
   }
 
-  if (!usuario) return null;
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    if (!supabase || !form.tipo) return;
+    setSalvando(true);
+    const payload = {
+      projeto_id: form.projeto_id || null, tipo: form.tipo,
+      descricao: form.descricao || null, responsavel: form.responsavel || null,
+      fornecedor: form.fornecedor || null, status: form.status,
+      valor: form.valor ? Number(form.valor) : 0,
+      prazo: form.prazo || null, observacoes: form.observacoes || null,
+      url: uploadUrl || null,
+    };
+    if (editando) {
+      await supabase.from('manager_prestacao_docs').update(payload).eq('id', editando.id);
+    } else {
+      await supabase.from('manager_prestacao_docs').insert(payload);
+    }
+    setSalvando(false);
+    setShowModal(false);
+    setEditando(null);
+    setForm(FORM0);
+    setUploadUrl('');
+    carregar();
+  }
+
+  async function excluir(id: string) {
+    if (!supabase || !window.confirm('Excluir este documento?')) return;
+    await supabase.from('manager_prestacao_docs').delete().eq('id', id);
+    setDocs((prev) => prev.filter((d) => d.id !== id));
+  }
+
+  async function atualizarStatus(id: string, status: string) {
+    if (!supabase) return;
+    await supabase.from('manager_prestacao_docs').update({ status }).eq('id', id);
+    setDocs((prev) => prev.map((d) => d.id === id ? { ...d, status } : d));
+  }
+
+  const projetoNome = (id?: string | null) => projetos.find((p) => p.id === id)?.nome || '—';
 
   return (
-    <main className="page">
-      <header className="navbar">
-        <Link href="/dashboard" className="brand">
-          <div className="brandIcon"><Trophy size={24} /></div>
-          <div>
-            <strong>IncentiVou</strong>
-            <span>Manager</span>
-          </div>
-        </Link>
+    <PortalShell portal="executor">
+      <div className="space-y-6">
 
-        <nav>
-          <Link href="/dashboard">Início</Link>
-          <Link href="/simulacoes">Simulações</Link>
-          <Link href="/site-publico">Site Público</Link>
-          <Link href="/simulador">Simulador</Link>
-        </nav>
-
-        <div className="userBox">
-          <button className="iconButton"><Bell size={19} /><i /></button>
-          <div className="avatar">B</div>
-          <div className="userText">
-            <strong>{usuario.nome}</strong>
-            <span>{usuario.perfil}</span>
-          </div>
-          <button onClick={sair} className="logout"><LogOut size={18} /></button>
-        </div>
-      </header>
-
-      <section className="hero">
-        <div>
-          <Link href="/dashboard" className="backLink">
-            <ArrowLeft size={17} />
-            Voltar ao dashboard
-          </Link>
-
-          <span>Documentos, comprovações e aprovação final</span>
-          <h1>Prestação de Contas</h1>
-          <p>
-            Controle documentos, notas fiscais, comprovantes bancários, relatórios,
-            fotos, evidências, pendências, prazos e riscos de glosa.
-          </p>
-
-          <div className="actions">
-            <button type="button" onClick={abrirNovo} className="primary">
-              <Plus size={19} />
-              Novo documento
-            </button>
-
-            <button type="button" className="secondary" onClick={() => fileInputRef.current?.click()}>
-              <Upload size={18} />
-              Importar planilha
-            </button>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              style={{ display: 'none' }}
-              onChange={importarPlanilha}
-            />
-
-            <button type="button" onClick={baixarModelo} className="secondary">
-              <Download size={18} />
-              Baixar modelo
+        {/* HEADER */}
+        <section className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-purple-600">Fase Final</p>
+              <h1 className="mt-1 text-3xl font-black tracking-[-0.04em] text-slate-950">Prestacao de Contas</h1>
+              <p className="mt-1 text-sm font-bold text-slate-500">
+                Comprovantes, notas fiscais, relatorios e status de aprovacao por projeto.
+              </p>
+            </div>
+            <button onClick={abrirNovo}
+              className="inline-flex items-center gap-2 rounded-2xl bg-purple-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-purple-600/20 transition hover:-translate-y-0.5">
+              <Plus size={16} /> Adicionar Documento
             </button>
           </div>
-        </div>
 
-        <div className="heroPanel">
-          <div className="panelItem">
-            <ClipboardCheck size={24} />
-            <strong>{metricas.totalItens}</strong>
-            <span>Itens cadastrados</span>
+          {/* METRICAS */}
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: 'Total Documentos',  value: String(filtrados.length), cls: '' },
+              { label: 'Valor Total',       value: fmt(totalValor),          cls: 'text-slate-950' },
+              { label: 'Aprovados',         value: String(aprovados.length), cls: 'text-emerald-700' },
+              { label: 'Risco / Reprovado', value: String(riscos.length),    cls: riscos.length > 0 ? 'text-red-600' : 'text-slate-400' },
+            ].map((m) => (
+              <div key={m.label} className="rounded-[1.3rem] border border-slate-200 bg-slate-50 p-4">
+                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">{m.label}</p>
+                <p className={`mt-1 text-2xl font-black ${m.cls || 'text-slate-950'}`}>{m.value}</p>
+              </div>
+            ))}
           </div>
+        </section>
 
-          <div className="panelItem">
-            <AlertTriangle size={24} />
-            <strong>{metricas.risco}</strong>
-            <span>Riscos de glosa</span>
-          </div>
-
-          <div className="panelItem">
-            <Wallet size={24} />
-            <strong>{moeda(metricas.totalValor)}</strong>
-            <span>Valor comprovado</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="metricsGrid">
-        <div className="metricCard" style={{ "--accent": "#24E49B" } as React.CSSProperties}>
-          <div><span>Em andamento</span><strong>{metricas.andamento}</strong></div>
-          <Clock size={30} />
-        </div>
-
-        <div className="metricCard" style={{ "--accent": "#FB923C" } as React.CSSProperties}>
-          <div><span>Pendentes</span><strong>{metricas.pendentes}</strong></div>
-          <FileText size={30} />
-        </div>
-
-        <div className="metricCard" style={{ "--accent": "#22C55E" } as React.CSSProperties}>
-          <div><span>Aprovadas</span><strong>{metricas.aprovadas}</strong></div>
-          <CheckCircle2 size={30} />
-        </div>
-
-        <div className="metricCard" style={{ "--accent": "#F43F5E" } as React.CSSProperties}>
-          <div><span>Risco alto</span><strong>{metricas.risco}</strong></div>
-          <AlertTriangle size={30} />
-        </div>
-      </section>
-
-      <section className="listCard">
-        <div className="listHeader">
-          <div>
-            <h2>Controle da prestação</h2>
-            <p>Pesquise, filtre e acompanhe documentos, evidências, pendências e glosas.</p>
-          </div>
-
-          <div className="filters">
-            <label className="searchBox">
-              <Search size={18} />
-              <input
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                placeholder="Buscar documento..."
-              />
-            </label>
-
-            <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
-              <option>Todos</option>
-              {statusOptions.map((status) => <option key={status}>{status}</option>)}
-            </select>
-
-            <button type="button" className="filterBtn">
-              <Filter size={18} />
-              Filtrar
-            </button>
-          </div>
-        </div>
-
-        <div className="projectGrid">
-          {filtrados.map((item) => {
-            const cor =
-              item.status === 'Aprovada' ? '#22C55E' :
-              item.status === 'Risco de glosa' || item.status === 'Reprovada' ? '#F43F5E' :
-              item.status === 'Pendente' ? '#FB923C' :
-              '#24E49B';
-
-            return (
-              <div key={item.id} className="projectShell" style={{ "--accent": cor } as React.CSSProperties}>
-                <div className="projectInner">
-                  <div className="projectTop">
-                    <div>
-                      <span className="status">{item.status}</span>
-                      <h3>{item.projeto}</h3>
-                      <p>{item.tipo}</p>
-                    </div>
-
-                    <div className="projectActions">
-                      <button type="button" onClick={() => abrirEditar(item)}>
-                        <Pencil size={17} />
-                      </button>
-
-                      <button type="button" onClick={() => excluir(item.id)}>
-                        <Trash2 size={17} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="infoList">
-                    <span><ReceiptText size={15} /> {item.descricao || '-'}</span>
-                    <span><UserRound size={15} /> Responsável: {item.responsavel || '-'}</span>
-                    <span><Building2 size={15} /> Fornecedor: {item.fornecedor || '-'}</span>
-                    <span><Calendar size={15} /> Prazo: {dataBR(item.prazo)}</span>
-                    <span><ImageIcon size={15} /> Evidências e anexos monitorados</span>
-                  </div>
-
-                  <div className="values">
-                    <div>
-                      <span>Valor</span>
-                      <strong>{moeda(item.valor)}</strong>
-                    </div>
-
-                    <div>
-                      <span>Validação</span>
-                      <strong>{item.status === 'Aprovada' ? '100%' : item.status === 'Em análise' ? '65%' : '35%'}</strong>
-                    </div>
-                  </div>
-
-                  <div className="progressArea">
-                    <div>
-                      <span>Andamento</span>
-                      <b>{item.status === 'Aprovada' ? '100%' : item.status === 'Em análise' ? '65%' : item.status === 'Risco de glosa' ? '30%' : '35%'}</b>
-                    </div>
-                    <div className="bar">
-                      <i style={{
-                        width:
-                          item.status === 'Aprovada' ? '100%' :
-                          item.status === 'Em análise' ? '65%' :
-                          item.status === 'Risco de glosa' ? '30%' :
-                          '35%'
-                      }} />
-                    </div>
-                  </div>
+        {/* ALERTAS */}
+        {(riscos.length > 0 || vencidos.length > 0 || vencendo.length > 0) && (
+          <section className="space-y-3">
+            {riscos.length > 0 && (
+              <div className="flex items-start gap-3 rounded-[1.4rem] border border-red-200 bg-red-50 p-4">
+                <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-600" />
+                <div>
+                  <p className="text-sm font-black text-red-800">
+                    {riscos.length} documento(s) em risco de glosa ou reprovado
+                  </p>
+                  <p className="mt-0.5 text-xs font-bold text-red-600">
+                    {riscos.map((d) => d.tipo).join(' · ')}
+                  </p>
                 </div>
               </div>
-            );
-          })}
+            )}
+            {vencidos.length > 0 && (
+              <div className="flex items-start gap-3 rounded-[1.4rem] border border-rose-200 bg-rose-50 p-4">
+                <Clock3 size={18} className="mt-0.5 shrink-0 text-rose-600" />
+                <div>
+                  <p className="text-sm font-black text-rose-800">
+                    {vencidos.length} documento(s) com prazo vencido
+                  </p>
+                </div>
+              </div>
+            )}
+            {vencendo.length > 0 && (
+              <div className="flex items-start gap-3 rounded-[1.4rem] border border-amber-200 bg-amber-50 p-4">
+                <Clock3 size={18} className="mt-0.5 shrink-0 text-amber-600" />
+                <div>
+                  <p className="text-sm font-black text-amber-800">
+                    {vencendo.length} documento(s) vencendo nos proximos 7 dias
+                  </p>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
-          {filtrados.length === 0 && (
-            <div className="empty">
-              Nenhum item de prestação encontrado com os filtros selecionados.
-            </div>
+        {/* FILTROS */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input type="text" placeholder="Buscar por tipo, fornecedor, responsavel..."
+              value={busca} onChange={(e) => setBusca(e.target.value)}
+              className="w-full rounded-[1.1rem] border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm font-bold outline-none focus:border-purple-400" />
+          </div>
+          <select value={filtroProjeto} onChange={(e) => setFiltroProjeto(e.target.value)}
+            className="rounded-[1.1rem] border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-purple-400">
+            <option value="">Todos os projetos</option>
+            {projetos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+          </select>
+          <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}
+            className="rounded-[1.1rem] border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-purple-400">
+            <option value="todos">Todos os status</option>
+            {STATUSS.map((s) => <option key={s} value={s}>{STATUS_META[s]?.label || s}</option>)}
+          </select>
+          {(busca || filtroStatus !== 'todos' || filtroProjeto) && (
+            <button onClick={() => { setBusca(''); setFiltroStatus('todos'); setFiltroProjeto(''); }}
+              className="rounded-[1.1rem] border border-slate-200 px-3 py-2.5 text-xs font-black text-slate-400 hover:text-slate-700">
+              <X size={14} />
+            </button>
           )}
+          <span className="text-xs font-black text-slate-400">{filtrados.length} doc(s)</span>
         </div>
-      </section>
 
-      {modalAberto && (
-        <div className="modalOverlay">
-          <form className="modal" onSubmit={salvar}>
-            <div className="modalHeader">
-              <div>
-                <span>{editandoId ? 'Editar prestação' : 'Novo item de prestação'}</span>
-                <h2>{editandoId ? 'Atualizar documento' : 'Cadastrar documento'}</h2>
+        {/* LISTA */}
+        {loading ? (
+          <p className="py-12 text-center text-sm font-bold text-slate-400">Carregando documentos...</p>
+        ) : filtrados.length === 0 ? (
+          <div className="rounded-[2rem] border border-dashed border-slate-200 py-16 text-center">
+            <FileText size={32} className="mx-auto text-slate-300" />
+            <p className="mt-4 text-sm font-black text-slate-400">Nenhum documento encontrado.</p>
+            <button onClick={abrirNovo}
+              className="mt-5 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-black text-slate-600 hover:bg-slate-50">
+              <Plus size={14} /> Adicionar primeiro documento
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filtrados.map((d) => {
+              const st   = STATUS_META[d.status || 'pendente'] || STATUS_META.pendente;
+              const dias = diasRestantes(d.prazo);
+              const atrasado = dias !== null && dias < 0 && d.status !== 'aprovado';
+              return (
+                <div key={d.id}
+                  className={`rounded-[1.6rem] border bg-white p-5 shadow-sm transition hover:shadow-md ${atrasado ? 'border-rose-200' : 'border-slate-200'}`}>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex items-start gap-4">
+                      <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${atrasado ? 'bg-rose-50 text-rose-600' : 'bg-purple-50 text-purple-700'}`}>
+                        <FileText size={18}/>
+                      </div>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-black text-slate-950">{d.tipo}</p>
+                          <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-black ${st.cls}`}>{st.label}</span>
+                          {atrasado && <span className="rounded-full bg-rose-100 px-2.5 py-0.5 text-[10px] font-black text-rose-700">Vencido</span>}
+                          {dias !== null && dias >= 0 && dias <= 7 && <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-black text-amber-700">{dias}d</span>}
+                        </div>
+                        {d.descricao && <p className="mt-0.5 text-xs font-bold text-slate-500">{d.descricao}</p>}
+                        <p className="mt-1 text-[11px] font-bold text-slate-400">
+                          {projetoNome(d.projeto_id)}
+                          {d.fornecedor ? ` · ${d.fornecedor}` : ''}
+                          {d.responsavel ? ` · ${d.responsavel}` : ''}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-base font-black text-slate-950">{fmt(Number(d.valor || 0))}</p>
+                        <p className="text-[10px] font-bold text-slate-400">Prazo: {fmtDate(d.prazo)}</p>
+                      </div>
+                      <select
+                        value={d.status || 'pendente'}
+                        onChange={(e) => atualizarStatus(d.id, e.target.value)}
+                        className={`rounded-full border-0 px-3 py-1.5 text-[10px] font-black outline-none cursor-pointer ${st.cls}`}>
+                        {STATUSS.map((s) => <option key={s} value={s}>{STATUS_META[s]?.label || s}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* acoes */}
+                  <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+                    <div className="flex gap-2">
+                      <button onClick={() => abrirEditar(d)}
+                        className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:bg-slate-50 transition">
+                        Editar
+                      </button>
+                      {d.url && (
+                        <a href={d.url} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:bg-slate-50 transition">
+                          <ExternalLink size={12}/> Ver arquivo
+                        </a>
+                      )}
+                    </div>
+                    <button onClick={() => excluir(d.id)}
+                      className="grid h-8 w-8 place-items-center rounded-xl bg-red-50 text-red-400 hover:bg-red-100 transition">
+                      <Trash2 size={13}/>
+                    </button>
+                  </div>
+
+                  {d.observacoes && (
+                    <p className="mt-3 rounded-[.8rem] bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-500">{d.observacoes}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* MODAL */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[2rem] border border-slate-200 bg-white shadow-2xl">
+            <div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white px-6 py-4">
+              <h2 className="text-lg font-black text-slate-950">
+                {editando ? 'Editar Documento' : 'Adicionar Documento'}
+              </h2>
+              <button onClick={() => { setShowModal(false); setEditando(null); setForm(FORM0); setUploadUrl(''); }}
+                className="grid h-8 w-8 place-items-center rounded-full border border-slate-200 text-slate-400 hover:bg-slate-50">
+                <X size={15}/>
+              </button>
+            </div>
+
+            <form onSubmit={salvar} className="space-y-3 p-6">
+              <select required value={form.projeto_id} onChange={(e) => setForm((f) => ({ ...f, projeto_id: e.target.value }))}
+                className="w-full rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-purple-400">
+                <option value="">Projeto (opcional)</option>
+                {projetos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select>
+
+              <select required value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value }))}
+                className="w-full rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-purple-400">
+                {TIPOS.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+
+              <textarea placeholder="Descricao" value={form.descricao}
+                onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))}
+                className="w-full rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-purple-400 min-h-[70px]" />
+
+              <div className="grid grid-cols-2 gap-3">
+                <input type="text" placeholder="Responsavel" value={form.responsavel}
+                  onChange={(e) => setForm((f) => ({ ...f, responsavel: e.target.value }))}
+                  className="w-full rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-purple-400" />
+                <input type="text" placeholder="Fornecedor" value={form.fornecedor}
+                  onChange={(e) => setForm((f) => ({ ...f, fornecedor: e.target.value }))}
+                  className="w-full rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-purple-400" />
               </div>
 
-              <button type="button" onClick={() => setModalAberto(false)}>
-                <X size={20} />
+              <div className="grid grid-cols-2 gap-3">
+                <input type="number" min="0" placeholder="Valor (R$)" value={form.valor}
+                  onChange={(e) => setForm((f) => ({ ...f, valor: e.target.value }))}
+                  className="w-full rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-purple-400" />
+                <input type="date" value={form.prazo}
+                  onChange={(e) => setForm((f) => ({ ...f, prazo: e.target.value }))}
+                  className="w-full rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-purple-400" />
+              </div>
+
+              <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                className="w-full rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-purple-400">
+                {STATUSS.map((s) => <option key={s} value={s}>{STATUS_META[s]?.label || s}</option>)}
+              </select>
+
+              <textarea placeholder="Observacoes" value={form.observacoes}
+                onChange={(e) => setForm((f) => ({ ...f, observacoes: e.target.value }))}
+                className="w-full rounded-[1.1rm] border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-purple-400 min-h-[60px]" />
+
+              {/* upload */}
+              <div className={`rounded-[1.1rem] border-2 border-dashed p-4 text-center ${uploadUrl ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
+                {uploadUrl ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <CheckCircle2 size={16} className="text-emerald-600"/>
+                    <span className="text-xs font-black text-emerald-700">Arquivo enviado</span>
+                    <button type="button" onClick={() => setUploadUrl('')}
+                      className="ml-2 text-slate-400 hover:text-red-500"><X size={14}/></button>
+                  </div>
+                ) : (
+                  <>
+                    <UploadCloud size={20} className="mx-auto text-slate-400"/>
+                    <p className="mt-1 text-xs font-bold text-slate-500">Enviar comprovante (PDF, imagem)</p>
+                    <label className="mt-2 inline-block cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-600 hover:bg-slate-50">
+                      {uploading ? 'Enviando...' : 'Escolher arquivo'}
+                      <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={handleUpload} disabled={uploading} />
+                    </label>
+                  </>
+                )}
+              </div>
+
+              <button type="submit" disabled={salvando}
+                className="w-full rounded-[1.1rem] bg-purple-600 py-3 text-sm font-black text-white shadow-lg shadow-purple-600/20 transition hover:bg-purple-700 disabled:opacity-50">
+                {salvando ? 'Salvando...' : editando ? 'Salvar alteracoes' : 'Adicionar documento'}
               </button>
-            </div>
-
-            <div className="formGrid">
-              <label>
-                Projeto *
-                <input value={form.projeto} onChange={(e) => setForm({ ...form, projeto: e.target.value })} />
-              </label>
-
-              <label>
-                Tipo
-                <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
-                  {tipoOptions.map((tipo) => <option key={tipo}>{tipo}</option>)}
-                </select>
-              </label>
-
-              <label className="full">
-                Descrição *
-                <input value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
-              </label>
-
-              <label>
-                Responsável
-                <input value={form.responsavel} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} />
-              </label>
-
-              <label>
-                Fornecedor
-                <input value={form.fornecedor} onChange={(e) => setForm({ ...form, fornecedor: e.target.value })} />
-              </label>
-
-              <label>
-                Status
-                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                  {statusOptions.map((status) => <option key={status}>{status}</option>)}
-                </select>
-              </label>
-
-              <label>
-                Valor
-                <input type="number" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} />
-              </label>
-
-              <label>
-                Prazo
-                <input type="date" value={form.prazo} onChange={(e) => setForm({ ...form, prazo: e.target.value })} />
-              </label>
-
-              <label className="full">
-                Observações
-                <textarea value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} />
-              </label>
-            </div>
-
-            <div className="modalFooter">
-              <button type="button" className="cancel" onClick={() => setModalAberto(false)}>
-                Cancelar
-              </button>
-
-              <button type="submit" className="save">
-                <Save size={18} />
-                Salvar prestação
-              </button>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
       )}
-
-      <style jsx>{`
-        .page {
-          min-height: 100vh;
-          background:
-            radial-gradient(circle at 5% 15%, rgba(36,228,155,.16), transparent 30%),
-            radial-gradient(circle at 82% 18%, rgba(59,130,246,.16), transparent 34%),
-            linear-gradient(135deg, #031226 0%, #061a35 42%, #07152f 100%);
-          color: #fff;
-          font-family: Arial, Helvetica, sans-serif;
-          padding-bottom: 80px;
-        }
-
-        .navbar {
-          height: 92px;
-          padding: 0 72px;
-          display: grid;
-          grid-template-columns: 1fr auto 1fr;
-          align-items: center;
-          border-bottom: 1px solid rgba(255,255,255,.08);
-          background: rgba(3,18,38,.78);
-          backdrop-filter: blur(18px);
-          position: sticky;
-          top: 0;
-          z-index: 20;
-        }
-
-        .brand {
-          display: flex;
-          align-items: center;
-          gap: 14px;
-          color: #fff;
-          text-decoration: none;
-          width: fit-content;
-        }
-
-        .brandIcon {
-          width: 56px;
-          height: 56px;
-          border-radius: 18px;
-          display: grid;
-          place-items: center;
-          background: linear-gradient(135deg, #24e49b, #14b8a6);
-          color: #031226;
-          box-shadow: 0 0 36px rgba(36,228,155,.34);
-        }
-
-        .brand strong {
-          display: block;
-          font-size: 28px;
-          letter-spacing: -.8px;
-        }
-
-        .brand span,
-        .userText span {
-          color: #9fb3d1;
-          font-size: 13px;
-        }
-
-        nav {
-          display: flex;
-          gap: 34px;
-        }
-
-        nav a {
-          color: #dce8ff;
-          text-decoration: none;
-          font-weight: 800;
-          padding: 34px 0 26px;
-          border-bottom: 3px solid transparent;
-          transition: .22s ease;
-        }
-
-        nav a:hover {
-          color: #24e49b;
-          border-bottom-color: #24e49b;
-        }
-
-        .userBox {
-          display: flex;
-          align-items: center;
-          justify-content: flex-end;
-          gap: 14px;
-        }
-
-        .iconButton,
-        .logout {
-          width: 48px;
-          height: 48px;
-          border-radius: 15px;
-          border: 0;
-          display: grid;
-          place-items: center;
-          color: #fff;
-          background: rgba(255,255,255,.07);
-          cursor: pointer;
-          position: relative;
-        }
-
-        .iconButton i {
-          position: absolute;
-          top: 10px;
-          right: 10px;
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #24e49b;
-          box-shadow: 0 0 12px rgba(36,228,155,.9);
-        }
-
-        .avatar {
-          width: 54px;
-          height: 54px;
-          border-radius: 50%;
-          display: grid;
-          place-items: center;
-          background: linear-gradient(135deg, #24e49b, #facc15);
-          color: #031226;
-          font-weight: 900;
-          font-size: 20px;
-        }
-
-        .hero {
-          max-width: 1580px;
-          margin: 0 auto;
-          padding: 54px 72px 36px;
-          display: grid;
-          grid-template-columns: 1.1fr .9fr;
-          gap: 42px;
-          align-items: stretch;
-        }
-
-        .backLink {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          color: #bcd0ec;
-          text-decoration: none;
-          font-weight: 800;
-          margin-bottom: 22px;
-        }
-
-        .hero > div:first-child {
-          border-radius: 28px;
-          padding: 42px;
-          background:
-            radial-gradient(circle at top left, rgba(36,228,155,.24), transparent 35%),
-            linear-gradient(135deg, rgba(13,42,82,.92), rgba(7,24,52,.96));
-          border: 1px solid rgba(255,255,255,.1);
-          box-shadow: 0 26px 90px rgba(0,0,0,.28);
-        }
-
-        .hero span {
-          display: inline-block;
-          color: #24e49b;
-          text-transform: uppercase;
-          font-size: 14px;
-          font-weight: 900;
-          margin-bottom: 14px;
-          letter-spacing: 2px;
-        }
-
-        .hero h1 {
-          margin: 0;
-          font-size: clamp(42px,4vw,64px);
-          line-height: 1;
-          letter-spacing: -2px;
-        }
-
-        .hero p {
-          max-width: 850px;
-          color: #bcd0ec;
-          font-size: 19px;
-          line-height: 1.55;
-          margin: 22px 0 0;
-        }
-
-        .actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 14px;
-          margin-top: 30px;
-        }
-
-        .primary,
-        .secondary,
-        .filterBtn,
-        .save,
-        .cancel {
-          border: 0;
-          border-radius: 15px;
-          min-height: 50px;
-          padding: 0 20px;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 10px;
-          font-weight: 900;
-          cursor: pointer;
-          transition: .22s ease;
-        }
-
-        .primary,
-        .save {
-          color: #031226;
-          background: linear-gradient(135deg, #24e49b, #14b8a6);
-        }
-
-        .secondary,
-        .filterBtn,
-        .cancel {
-          color: #fff;
-          background: rgba(255,255,255,.07);
-          border: 1px solid rgba(255,255,255,.12);
-        }
-
-        .primary:hover,
-        .secondary:hover,
-        .filterBtn:hover,
-        .save:hover,
-        .cancel:hover {
-          transform: translateY(-3px);
-        }
-
-        .heroPanel {
-          border-radius: 28px;
-          padding: 28px;
-          background: linear-gradient(145deg, rgba(12,37,76,.92), rgba(7,24,52,.96));
-          border: 1px solid rgba(255,255,255,.1);
-          display: grid;
-          gap: 18px;
-        }
-
-        .panelItem {
-          border-radius: 20px;
-          padding: 22px;
-          background: rgba(255,255,255,.045);
-          border: 1px solid rgba(255,255,255,.08);
-        }
-
-        .panelItem svg {
-          color: #24e49b;
-          margin-bottom: 14px;
-        }
-
-        .panelItem strong {
-          display: block;
-          font-size: 28px;
-          color: #24e49b;
-          margin-bottom: 6px;
-        }
-
-        .panelItem span {
-          color: #bcd0ec;
-        }
-
-        .metricsGrid {
-          max-width: 1580px;
-          margin: 0 auto;
-          padding: 0 72px 26px;
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 18px;
-        }
-
-        .metricCard {
-          border-radius: 22px;
-          padding: 24px;
-          background:
-            radial-gradient(circle at top right, color-mix(in srgb, var(--accent), transparent 78%), transparent 42%),
-            linear-gradient(145deg, rgba(13,42,82,.88), rgba(7,24,52,.96));
-          border: 1px solid color-mix(in srgb, var(--accent), rgba(255,255,255,.08) 65%);
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .metricCard span {
-          display: block;
-          color: #bcd0ec;
-          font-weight: 800;
-          margin-bottom: 12px;
-        }
-
-        .metricCard strong {
-          font-size: 36px;
-        }
-
-        .metricCard svg {
-          color: var(--accent);
-        }
-
-        .listCard {
-          max-width: 1580px;
-          margin: 0 auto;
-          padding: 30px;
-          width: calc(100% - 144px);
-          border-radius: 28px;
-          background: linear-gradient(145deg, rgba(12,37,76,.92), rgba(7,24,52,.96));
-          border: 1px solid rgba(255,255,255,.1);
-          box-shadow: 0 26px 90px rgba(0,0,0,.24);
-        }
-
-        .listHeader {
-          display: flex;
-          justify-content: space-between;
-          gap: 22px;
-          align-items: center;
-          margin-bottom: 24px;
-        }
-
-        .listHeader h2 {
-          margin: 0 0 8px;
-          font-size: 32px;
-        }
-
-        .listHeader p {
-          margin: 0;
-          color: #bcd0ec;
-        }
-
-        .filters {
-          display: flex;
-          gap: 12px;
-          align-items: center;
-        }
-
-        .searchBox {
-          height: 52px;
-          min-width: 280px;
-          border-radius: 15px;
-          padding: 0 16px;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          background: rgba(255,255,255,.07);
-          border: 1px solid rgba(255,255,255,.12);
-          color: #bcd0ec;
-        }
-
-        .searchBox input,
-        .filters select,
-        .modal input,
-        .modal select,
-        .modal textarea {
-          width: 100%;
-          border: 0;
-          outline: none;
-          background: transparent;
-          color: #fff;
-          font-weight: 700;
-        }
-
-        .searchBox input,
-        .filters select,
-        .modal input,
-        .modal select {
-          height: 52px;
-        }
-
-        .modal textarea {
-          min-height: 110px;
-          resize: vertical;
-          padding-top: 14px;
-        }
-
-        .filters select,
-        .modal select {
-          border-radius: 15px;
-          padding: 0 16px;
-          background: rgba(255,255,255,.07);
-          border: 1px solid rgba(255,255,255,.12);
-        }
-
-        .projectGrid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 18px;
-        }
-
-        .projectShell {
-          border-radius: 24px;
-          transform: translateY(0) scale(1);
-          transition: transform .32s cubic-bezier(.2,.8,.2,1), filter .32s ease;
-          cursor: pointer;
-        }
-
-        .projectShell:hover {
-          transform: translateY(-14px) scale(1.025);
-          z-index: 5;
-          filter: drop-shadow(0 30px 50px rgba(0,0,0,.45));
-        }
-
-        .projectInner {
-          min-height: 340px;
-          border-radius: 24px;
-          padding: 24px;
-          background:
-            radial-gradient(circle at top left, color-mix(in srgb, var(--accent), transparent 82%), transparent 50%),
-            linear-gradient(145deg, rgba(13,42,82,.94), rgba(7,24,52,.98));
-          border: 1px solid color-mix(in srgb, var(--accent), rgba(255,255,255,.08) 60%);
-          box-shadow: 0 14px 40px rgba(0,0,0,.24);
-        }
-
-        .projectShell:hover .projectInner {
-          border-color: var(--accent);
-          box-shadow:
-            0 0 55px color-mix(in srgb, var(--accent), transparent 62%),
-            0 30px 80px rgba(0,0,0,.4);
-        }
-
-        .projectTop {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-        }
-
-        .status {
-          display: inline-flex;
-          color: #031226;
-          background: #24e49b;
-          border-radius: 999px;
-          padding: 7px 12px;
-          font-size: 12px;
-          font-weight: 900;
-          margin-bottom: 12px;
-          text-transform: uppercase;
-        }
-
-        .projectTop h3 {
-          margin: 0 0 8px;
-          font-size: 22px;
-        }
-
-        .projectTop p {
-          margin: 0;
-          color: #bcd0ec;
-        }
-
-        .projectActions {
-          display: flex;
-          gap: 8px;
-        }
-
-        .projectActions button {
-          width: 38px;
-          height: 38px;
-          border-radius: 12px;
-          border: 1px solid rgba(255,255,255,.12);
-          background: rgba(255,255,255,.06);
-          color: #fff;
-          cursor: pointer;
-        }
-
-        .infoList {
-          display: grid;
-          gap: 10px;
-          margin-top: 22px;
-        }
-
-        .infoList span {
-          color: #bcd0ec;
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          line-height: 1.35;
-        }
-
-        .values {
-          display: flex;
-          justify-content: space-between;
-          gap: 14px;
-          margin-top: 22px;
-        }
-
-        .values div {
-          flex: 1;
-          border-radius: 16px;
-          padding: 16px;
-          background: rgba(255,255,255,.045);
-          border: 1px solid rgba(255,255,255,.08);
-        }
-
-        .values span,
-        .progressArea span {
-          display: block;
-          color: #bcd0ec;
-          margin-bottom: 8px;
-        }
-
-        .values strong {
-          font-size: 20px;
-        }
-
-        .progressArea {
-          margin-top: 22px;
-        }
-
-        .progressArea > div:first-child {
-          display: flex;
-          justify-content: space-between;
-        }
-
-        .bar {
-          height: 10px;
-          border-radius: 999px;
-          background: rgba(255,255,255,.09);
-          overflow: hidden;
-        }
-
-        .bar i {
-          display: block;
-          height: 100%;
-          border-radius: 999px;
-          background: linear-gradient(90deg, #24e49b, #14b8a6);
-        }
-
-        .empty {
-          grid-column: 1 / -1;
-          border-radius: 20px;
-          padding: 28px;
-          text-align: center;
-          background: rgba(255,255,255,.05);
-          color: #bcd0ec;
-        }
-
-        .modalOverlay {
-          position: fixed;
-          inset: 0;
-          z-index: 50;
-          background: rgba(0,0,0,.72);
-          backdrop-filter: blur(10px);
-          display: grid;
-          place-items: center;
-          padding: 24px;
-        }
-
-        .modal {
-          width: 100%;
-          max-width: 920px;
-          border-radius: 28px;
-          padding: 28px;
-          background: linear-gradient(145deg, rgba(12,37,76,.98), rgba(7,24,52,.98));
-          border: 1px solid rgba(255,255,255,.12);
-          box-shadow: 0 40px 120px rgba(0,0,0,.55);
-        }
-
-        .modalHeader,
-        .modalFooter {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 18px;
-        }
-
-        .modalHeader span {
-          color: #24e49b;
-          font-weight: 900;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-          font-size: 13px;
-        }
-
-        .modalHeader h2 {
-          margin: 6px 0 0;
-          font-size: 30px;
-        }
-
-        .modalHeader button {
-          width: 44px;
-          height: 44px;
-          border-radius: 14px;
-          border: 1px solid rgba(255,255,255,.12);
-          background: rgba(255,255,255,.06);
-          color: #fff;
-          cursor: pointer;
-        }
-
-        .formGrid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 16px;
-          margin: 26px 0;
-        }
-
-        .modal label {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          font-weight: 900;
-          color: #dce8ff;
-        }
-
-        .modal input,
-        .modal textarea {
-          border-radius: 15px;
-          padding-left: 16px;
-          padding-right: 16px;
-          background: rgba(255,255,255,.07);
-          border: 1px solid rgba(255,255,255,.12);
-        }
-
-        .modalFooter {
-          justify-content: flex-end;
-        }
-
-        .full {
-          grid-column: 1 / -1;
-        }
-
-        @media (max-width: 1250px) {
-          .navbar { padding: 0 28px; }
-          .hero { grid-template-columns: 1fr; padding: 44px 28px 36px; }
-          .metricsGrid { grid-template-columns: repeat(2, 1fr); padding: 0 28px 26px; }
-          .listCard { width: calc(100% - 56px); }
-          .projectGrid { grid-template-columns: repeat(2, 1fr); }
-        }
-
-        @media (max-width: 860px) {
-          .navbar {
-            height: auto;
-            min-height: 88px;
-            grid-template-columns: 1fr auto;
-            gap: 16px;
-            padding: 18px;
-          }
-
-          nav {
-            grid-column: 1 / -1;
-            overflow-x: auto;
-            justify-content: flex-start;
-          }
-
-          .userText { display: none; }
-          .listHeader { flex-direction: column; align-items: stretch; }
-          .filters { flex-direction: column; align-items: stretch; }
-          .searchBox { min-width: 100%; }
-          .formGrid { grid-template-columns: 1fr; }
-          .projectGrid { grid-template-columns: 1fr; }
-          .full { grid-column: auto; }
-        }
-
-        @media (max-width: 680px) {
-          .hero { padding: 34px 18px 28px; }
-          .hero > div:first-child { padding: 26px; }
-          .metricsGrid { grid-template-columns: 1fr; padding: 0 18px 22px; }
-          .listCard { width: calc(100% - 36px); padding: 20px; }
-        }
-      `}</style>
-    </main>
+    </PortalShell>
   );
 }
-

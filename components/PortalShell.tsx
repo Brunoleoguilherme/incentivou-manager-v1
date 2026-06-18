@@ -3,20 +3,53 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { LogOut, Sparkles } from 'lucide-react';
 import { portalConfig, portalMenus, PortalType } from '@/lib/kanbanData';
 
 export default function PortalShell({
-  portal,
+  portal: portalProp,
   children,
 }: {
-  portal: PortalType;
+  portal?: PortalType;
   children: React.ReactNode;
 }) {
-  const config = portalConfig[portal];
-  const menu = portalMenus[portal];
   const pathname = usePathname();
-  const router = useRouter();
+  const router   = useRouter();
+  const [portal, setPortal] = useState<PortalType | null>(null);
+
+  useEffect(() => {
+    const raw = localStorage.getItem('incentivou_usuario');
+    if (!raw) {
+      router.push('/login');
+      return;
+    }
+    try {
+      const user = JSON.parse(raw);
+      const p = user.portal as PortalType;
+      if (p === 'admin' || p === 'executor' || p === 'empresa') {
+        setPortal(p);
+      } else if (portalProp) {
+        setPortal(portalProp);
+      } else {
+        router.push('/login');
+      }
+    } catch {
+      router.push('/login');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!portal) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f4f8ff]">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#0068ff] border-t-transparent" />
+      </div>
+    );
+  }
+
+  const config = portalConfig[portal];
+  const menu   = portalMenus[portal];
 
   function sair() {
     localStorage.removeItem('incentivou_usuario');
@@ -53,8 +86,10 @@ export default function PortalShell({
         <nav className="flex-1 overflow-y-auto px-4 pb-5">
           <div className="space-y-1.5">
             {menu.map((item) => {
-              const Icon = item.icon;
-              const active = pathname === item.href;
+              const Icon   = item.icon;
+              const depth  = item.href.split('/').filter(Boolean).length;
+              const active = pathname === item.href ||
+                (depth >= 2 && pathname.startsWith(item.href + '/'));
 
               return (
                 <Link
@@ -85,7 +120,7 @@ export default function PortalShell({
                   Operação 360°
                 </p>
                 <p className="text-sm font-bold">
-                  Compliance + CRM + Prestação
+                  Compliance + CRM + Prestação de Contas
                 </p>
               </div>
             </div>

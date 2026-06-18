@@ -1,10 +1,16 @@
-// @ts-nocheck
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Plus, Trash2 } from 'lucide-react';
+import PortalShell from '@/components/PortalShell';
 import { supabase } from '@/lib/supabaseClient';
 
-const categorias = [
+/* ── tipos ───────────────────────────────────────── */
+type Item = { categoria: string; nome_item: string; quantidade: number; valor_unitario: number; total: number };
+type NovoItem = { categoria: string; nome_item: string; quantidade: string; valor_unitario: string };
+
+/* ── dados ───────────────────────────────────────── */
+const CATEGORIAS = [
   'Recursos Humanos Atividade Fim',
   'Encargos Sociais e Trabalhistas Atividade Fim',
   'Materiais Esportivos e Afins',
@@ -16,738 +22,319 @@ const categorias = [
   'Local de Execução',
 ];
 
-const sugestoes = {
-  'Recursos Humanos Atividade Fim': [
-    'Professor',
-    'Monitor',
-    'Coordenador Técnico',
-    'Preparador Físico',
-    'Fisioterapeuta',
-    'Psicólogo',
-    'Assistente Social',
-  ],
-  'Materiais Esportivos e Afins': [
-    'Uniforme',
-    'Bola',
-    'Cone',
-    'Colete',
-    'Equipamento esportivo',
-    'Material de treino',
-  ],
-  'Bolsa Auxílio': [
-    'Bolsa Auxílio Categoria 1',
-    'Bolsa Auxílio Categoria 2',
-    'Bolsa Auxílio Categoria 3',
-  ],
-  'Hospedagem, Alimentação e Transporte': [
-    'Alimentação',
-    'Transporte van',
-    'Transporte ônibus',
-    'Hospedagem',
-    'Kit lanche',
-  ],
-  'Recursos Humanos Atividade Meio': [
-    'Contador',
-    'Advogado',
-    'Secretária',
-    'Auxiliar administrativo',
-    'Assessor de imprensa',
-    'Fotógrafo',
-    'Videomaker',
-  ],
-  'Empresa Especializada em Prestação de Contas': [
-    'Prestação de contas mensal',
-    'Consultoria técnica',
-    'Gestão documental',
-  ],
-  'Local de Execução': [
-    'Espaço alugado',
-    'Quadra',
-    'Campo',
-    'Ginásio',
-    'Centro de treinamento',
-  ],
+const SUGESTOES: Record<string, string[]> = {
+  'Recursos Humanos Atividade Fim': ['Professor', 'Monitor', 'Coordenador Técnico', 'Preparador Físico', 'Fisioterapeuta'],
+  'Materiais Esportivos e Afins': ['Uniforme', 'Bola', 'Cone', 'Colete', 'Equipamento esportivo'],
+  'Bolsa Auxílio': ['Bolsa Auxílio Categoria 1', 'Bolsa Auxílio Categoria 2', 'Bolsa Auxílio Categoria 3'],
+  'Hospedagem, Alimentação e Transporte': ['Alimentação', 'Transporte van', 'Transporte ônibus', 'Hospedagem'],
+  'Recursos Humanos Atividade Meio': ['Contador', 'Advogado', 'Secretária', 'Auxiliar administrativo', 'Fotógrafo'],
+  'Empresa Especializada em Prestação de Contas': ['Prestação de contas mensal', 'Consultoria técnica'],
+  'Local de Execução': ['Quadra', 'Campo', 'Ginásio', 'Centro de treinamento'],
 };
 
-function moeda(valor) {
-  return Number(valor || 0).toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  });
-}
+const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
+const inputCls = 'h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#0068ff] focus:bg-white';
+const selectCls = inputCls;
+const labelCls = 'block text-xs font-black uppercase tracking-[0.16em] text-slate-500 mb-2';
+const fmt = (v: number) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-export default function SimuladorPublico() {
-  const [config, setConfig] = useState(null);
-  const [enviando, setEnviando] = useState(false);
-  const [sucesso, setSucesso] = useState(false);
-
-  const [form, setForm] = useState({
-    nome_responsavel: '',
-    email: '',
-    telefone: '',
-    entidade: '',
-    cnpj: '',
-    cidade: '',
-    estado: '',
-    nome_projeto: '',
-    tipo_projeto: '',
-    modalidade: '',
-    tipo_lei: 'Lei Federal',
-    duracao_meses: 12,
-    local_execucao: '',
-    observacoes: '',
-    consentimento_lgpd: false,
-  });
-
-  const [itens, setItens] = useState([]);
-
-  const [novoItem, setNovoItem] = useState({
-    categoria: 'Recursos Humanos Atividade Fim',
-    nome_item: '',
-    quantidade: 1,
-    valor_unitario: '',
-  });
-
-  useEffect(() => {
-    async function carregarConfig() {
-      const { data } = await supabase
-        .from('site_config')
-        .select('valor')
-        .eq('chave', 'simulador_publico')
-        .single();
-
-      setConfig(data?.valor || {
-        ativo: true,
-        titulo: 'Simulador de Projeto Esportivo Incentivado',
-        subtitulo: 'Preencha os dados abaixo e simule uma estimativa inicial do seu projeto.',
-        textoLgpd: 'Autorizo o contato e o tratamento dos meus dados.',
-      });
-    }
-
-    carregarConfig();
-  }, []);
-
-  const totalAtividadeFim = useMemo(() => {
-    return itens
-      .filter((item) =>
-        [
-          'Recursos Humanos Atividade Fim',
-          'Encargos Sociais e Trabalhistas Atividade Fim',
-          'Materiais Esportivos e Afins',
-          'Bolsa Auxílio',
-          'Hospedagem, Alimentação e Transporte',
-          'Local de Execução',
-        ].includes(item.categoria)
-      )
-      .reduce((acc, item) => acc + Number(item.total || 0), 0);
-  }, [itens]);
-
-  const totalAtividadeMeio = useMemo(() => {
-    return itens
-      .filter((item) =>
-        [
-          'Recursos Humanos Atividade Meio',
-          'Encargos Sociais e Trabalhistas Atividade Meio',
-          'Empresa Especializada em Prestação de Contas',
-        ].includes(item.categoria)
-      )
-      .reduce((acc, item) => acc + Number(item.total || 0), 0);
-  }, [itens]);
-
-  const totalGeral = totalAtividadeFim + totalAtividadeMeio;
-
-  function atualizarCampo(campo, valor) {
-    setForm((prev) => ({ ...prev, [campo]: valor }));
-  }
-
-  function adicionarItem() {
-    if (!novoItem.nome_item || !novoItem.quantidade || !novoItem.valor_unitario) {
-      alert('Preencha o item, quantidade e valor unitário.');
-      return;
-    }
-
-    const quantidade = Number(novoItem.quantidade);
-    const valor = Number(String(novoItem.valor_unitario).replace(',', '.'));
-    const total = quantidade * valor;
-
-    setItens((prev) => [
-      ...prev,
-      {
-        ...novoItem,
-        quantidade,
-        valor_unitario: valor,
-        total,
-      },
-    ]);
-
-    setNovoItem({
-      categoria: novoItem.categoria,
-      nome_item: '',
-      quantidade: 1,
-      valor_unitario: '',
-    });
-  }
-
-  function removerItem(index) {
-    setItens((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  async function enviarSimulacao(e) {
-    e.preventDefault();
-
-    if (!form.consentimento_lgpd) {
-      alert('É necessário aceitar o consentimento de uso dos dados.');
-      return;
-    }
-
-    if (!form.nome_responsavel || !form.email || !form.nome_projeto) {
-      alert('Preencha nome, e-mail e nome do projeto.');
-      return;
-    }
-
-    setEnviando(true);
-
-    const payload = {
-      ...form,
-      duracao_meses: Number(form.duracao_meses || 12),
-      total_atividade_fim: totalAtividadeFim,
-      total_atividade_meio: totalAtividadeMeio,
-      total_geral: totalGeral,
-    };
-
-    const { data, error } = await supabase
-      .from('simulacoes_projeto')
-      .insert(payload)
-      .select('id')
-      .single();
-
-    if (error) {
-      console.error(error);
-      alert('Erro ao enviar simulação.');
-      setEnviando(false);
-      return;
-    }
-
-    if (itens.length > 0) {
-      const itensPayload = itens.map((item) => ({
-        simulacao_id: data.id,
-        categoria: item.categoria,
-        nome_item: item.nome_item,
-        quantidade: item.quantidade,
-        valor_unitario: item.valor_unitario,
-        total: item.total,
-      }));
-
-      const { error: itensError } = await supabase
-        .from('simulacao_itens')
-        .insert(itensPayload);
-
-      if (itensError) {
-        console.error(itensError);
-      }
-    }
-
-    setSucesso(true);
-    setEnviando(false);
-  }
-
-  if (!config) {
-    return <main style={{ padding: 40 }}>Carregando simulador...</main>;
-  }
-
-  if (config.ativo === false) {
-    return <main style={{ padding: 40 }}>Simulador temporariamente indisponível.</main>;
-  }
-
-  if (sucesso) {
-    return (
-      <main className="sim-page">
-        <section className="success-card">
-          <h1>Simulação enviada com sucesso!</h1>
-          <p>
-            Recebemos os dados do seu projeto. Nossa equipe irá analisar as informações
-            e entrar em contato.
-          </p>
-          <a href="/simulador">Fazer nova simulação</a>
-        </section>
-
-        <style jsx>{styles}</style>
-      </main>
-    );
-  }
-
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <main className="sim-page">
-      <section className="hero">
-        <div className="badge">IncentiVou</div>
-        <h1>{config.titulo}</h1>
-        <p>{config.subtitulo}</p>
-      </section>
-
-      <form onSubmit={enviarSimulacao}>
-        <section className="card">
-          <h2>Dados do responsável</h2>
-
-          <div className="grid">
-            <label>
-              Nome do responsável *
-              <input value={form.nome_responsavel} onChange={(e) => atualizarCampo('nome_responsavel', e.target.value)} />
-            </label>
-
-            <label>
-              E-mail *
-              <input type="email" value={form.email} onChange={(e) => atualizarCampo('email', e.target.value)} />
-            </label>
-
-            <label>
-              Telefone / WhatsApp
-              <input value={form.telefone} onChange={(e) => atualizarCampo('telefone', e.target.value)} />
-            </label>
-
-            <label>
-              Entidade / organização
-              <input value={form.entidade} onChange={(e) => atualizarCampo('entidade', e.target.value)} />
-            </label>
-
-            <label>
-              CNPJ
-              <input value={form.cnpj} onChange={(e) => atualizarCampo('cnpj', e.target.value)} />
-            </label>
-
-            <label>
-              Cidade
-              <input value={form.cidade} onChange={(e) => atualizarCampo('cidade', e.target.value)} />
-            </label>
-
-            <label>
-              Estado
-              <input value={form.estado} onChange={(e) => atualizarCampo('estado', e.target.value)} />
-            </label>
-          </div>
-        </section>
-
-        <section className="card">
-          <h2>Detalhes do projeto</h2>
-
-          <div className="grid">
-            <label>
-              Nome do projeto *
-              <input value={form.nome_projeto} onChange={(e) => atualizarCampo('nome_projeto', e.target.value)} />
-            </label>
-
-            <label>
-              Tipo de projeto
-              <select value={form.tipo_projeto} onChange={(e) => atualizarCampo('tipo_projeto', e.target.value)}>
-                <option value="">Selecione</option>
-                <option>Projeto esportivo</option>
-                <option>Projeto paradesportivo</option>
-                <option>Evento esportivo</option>
-                <option>Formação esportiva</option>
-                <option>Rendimento esportivo</option>
-              </select>
-            </label>
-
-            <label>
-              Modalidade
-              <input value={form.modalidade} onChange={(e) => atualizarCampo('modalidade', e.target.value)} />
-            </label>
-
-            <label>
-              Tipo de lei
-              <select value={form.tipo_lei} onChange={(e) => atualizarCampo('tipo_lei', e.target.value)}>
-                <option>Lei Federal</option>
-                <option>Lei Estadual</option>
-                <option>Lei Municipal</option>
-              </select>
-            </label>
-
-            <label>
-              Duração em meses
-              <input type="number" min="1" value={form.duracao_meses} onChange={(e) => atualizarCampo('duracao_meses', e.target.value)} />
-            </label>
-
-            <label>
-              Local de execução
-              <select value={form.local_execucao} onChange={(e) => atualizarCampo('local_execucao', e.target.value)}>
-                <option value="">Selecione</option>
-                <option>Próprio</option>
-                <option>Cedido</option>
-                <option>Alugado</option>
-                <option>A definir</option>
-              </select>
-            </label>
-          </div>
-        </section>
-
-        <section className="card">
-          <h2>Itens da simulação</h2>
-
-          <div className="item-box">
-            <label>
-              Categoria
-              <select
-                value={novoItem.categoria}
-                onChange={(e) => setNovoItem((prev) => ({ ...prev, categoria: e.target.value, nome_item: '' }))}
-              >
-                {categorias.map((categoria) => (
-                  <option key={categoria}>{categoria}</option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Item
-              <input
-                list="sugestoes-itens"
-                value={novoItem.nome_item}
-                onChange={(e) => setNovoItem((prev) => ({ ...prev, nome_item: e.target.value }))}
-                placeholder="Ex: Professor, uniforme, transporte..."
-              />
-              <datalist id="sugestoes-itens">
-                {(sugestoes[novoItem.categoria] || []).map((item) => (
-                  <option key={item} value={item} />
-                ))}
-              </datalist>
-            </label>
-
-            <label>
-              Quantidade
-              <input
-                type="number"
-                min="1"
-                value={novoItem.quantidade}
-                onChange={(e) => setNovoItem((prev) => ({ ...prev, quantidade: e.target.value }))}
-              />
-            </label>
-
-            <label>
-              Valor unitário
-              <input
-                value={novoItem.valor_unitario}
-                onChange={(e) => setNovoItem((prev) => ({ ...prev, valor_unitario: e.target.value }))}
-                placeholder="Ex: 1500"
-              />
-            </label>
-
-            <button type="button" onClick={adicionarItem}>
-              Incluir item
-            </button>
-          </div>
-
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Categoria</th>
-                  <th>Item</th>
-                  <th>Quantidade</th>
-                  <th>Valor unitário</th>
-                  <th>Total</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {itens.length === 0 && (
-                  <tr>
-                    <td colSpan="6">Nenhum item incluído ainda.</td>
-                  </tr>
-                )}
-
-                {itens.map((item, index) => (
-                  <tr key={`${item.nome_item}-${index}`}>
-                    <td>{item.categoria}</td>
-                    <td>{item.nome_item}</td>
-                    <td>{item.quantidade}</td>
-                    <td>{moeda(item.valor_unitario)}</td>
-                    <td>{moeda(item.total)}</td>
-                    <td>
-                      <button type="button" className="remove" onClick={() => removerItem(index)}>
-                        Remover
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="totais">
-          <div>
-            <span>Valor total da atividade fim</span>
-            <strong>{moeda(totalAtividadeFim)}</strong>
-          </div>
-
-          <div>
-            <span>Valor total da atividade meio</span>
-            <strong>{moeda(totalAtividadeMeio)}</strong>
-          </div>
-
-          <div className="grand">
-            <span>Valor total estimado do projeto</span>
-            <strong>{moeda(totalGeral)}</strong>
-          </div>
-        </section>
-
-        <section className="card">
-          <h2>Observações</h2>
-          <textarea
-            value={form.observacoes}
-            onChange={(e) => atualizarCampo('observacoes', e.target.value)}
-            placeholder="Conte brevemente sobre o objetivo do projeto, público atendido e qualquer informação relevante."
-          />
-
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={form.consentimento_lgpd}
-              onChange={(e) => atualizarCampo('consentimento_lgpd', e.target.checked)}
-            />
-            {config.textoLgpd}
-          </label>
-
-          <button className="submit" disabled={enviando}>
-            {enviando ? 'Enviando...' : 'Enviar simulação'}
-          </button>
-        </section>
-      </form>
-
-      <style jsx>{styles}</style>
-    </main>
+    <div className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-[0_12px_40px_rgba(15,23,42,0.06)]">
+      <h2 className="mb-6 text-xl font-black tracking-[-0.03em] text-slate-950">{title}</h2>
+      {children}
+    </div>
   );
 }
 
-const styles = `
-.sim-page {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #07152f, #061020 45%, #091a3a);
-  color: #fff;
-  padding: 40px 20px;
-  font-family: Arial, sans-serif;
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className={labelCls}>{label}</label>
+      {children}
+    </div>
+  );
 }
 
-.hero {
-  max-width: 1100px;
-  margin: 0 auto 28px;
-  padding: 36px;
-  border-radius: 28px;
-  background: linear-gradient(135deg, rgba(22, 74, 180, .9), rgba(5, 16, 34, .95));
-  border: 1px solid rgba(255,255,255,.12);
-  box-shadow: 0 24px 80px rgba(0,0,0,.35);
-}
+/* ── página ──────────────────────────────────────── */
+export default function SimuladorPage() {
+  const [enviando, setEnviando]   = useState(false);
+  const [sucesso, setSucesso]     = useState(false);
+  const [erro, setErro]           = useState('');
 
-.badge {
-  display: inline-block;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: #20d68b;
-  color: #04111f;
-  font-weight: 800;
-  margin-bottom: 14px;
-}
+  const [form, setForm] = useState({
+    nome_responsavel: '', email: '', telefone: '', entidade: '',
+    cnpj: '', cidade: '', estado: '',
+    nome_projeto: '', tipo_projeto: '', modalidade: '',
+    tipo_lei: 'Lei Federal', duracao_meses: '12', local_execucao: '',
+    observacoes: '', consentimento_lgpd: false,
+  });
 
-.hero h1 {
-  margin: 0 0 12px;
-  font-size: 38px;
-}
+  const [itens, setItens]   = useState<Item[]>([]);
+  const [novo, setNovo]     = useState<NovoItem>({ categoria: CATEGORIAS[0], nome_item: '', quantidade: '1', valor_unitario: '' });
 
-.hero p {
-  margin: 0;
-  color: #dce8ff;
-  font-size: 17px;
-  line-height: 1.5;
-}
+  const f = (campo: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm(p => ({ ...p, [campo]: e.target.value }));
 
-form {
-  max-width: 1100px;
-  margin: 0 auto;
-}
+  const totalFim  = useMemo(() => itens.filter(i => !['Recursos Humanos Atividade Meio','Encargos Sociais e Trabalhistas Atividade Meio','Empresa Especializada em Prestação de Contas'].includes(i.categoria)).reduce((s, i) => s + i.total, 0), [itens]);
+  const totalMeio = useMemo(() => itens.filter(i =>  ['Recursos Humanos Atividade Meio','Encargos Sociais e Trabalhistas Atividade Meio','Empresa Especializada em Prestação de Contas'].includes(i.categoria)).reduce((s, i) => s + i.total, 0), [itens]);
+  const totalGeral = totalFim + totalMeio;
 
-.card {
-  background: rgba(255,255,255,.97);
-  color: #101827;
-  border-radius: 24px;
-  padding: 28px;
-  margin-bottom: 22px;
-  box-shadow: 0 18px 50px rgba(0,0,0,.22);
-}
-
-.card h2 {
-  margin: 0 0 22px;
-  color: #07265c;
-  font-size: 24px;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-}
-
-label {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  font-weight: 700;
-  font-size: 14px;
-}
-
-input, select, textarea {
-  border: 1px solid #d4dbe8;
-  border-radius: 14px;
-  padding: 13px 14px;
-  font-size: 15px;
-  outline: none;
-  background: #fff;
-}
-
-input:focus, select:focus, textarea:focus {
-  border-color: #20d68b;
-  box-shadow: 0 0 0 3px rgba(32,214,139,.18);
-}
-
-textarea {
-  min-height: 120px;
-  resize: vertical;
-}
-
-.item-box {
-  display: grid;
-  grid-template-columns: 1.2fr 1.2fr .6fr .8fr auto;
-  gap: 14px;
-  align-items: end;
-  margin-bottom: 22px;
-}
-
-button {
-  border: 0;
-  border-radius: 14px;
-  padding: 13px 18px;
-  font-weight: 900;
-  cursor: pointer;
-  background: #20d68b;
-  color: #04111f;
-}
-
-button:hover {
-  filter: brightness(.95);
-}
-
-.table-wrap {
-  overflow-x: auto;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 760px;
-}
-
-th {
-  text-align: left;
-  background: #eaf1ff;
-  color: #07265c;
-  padding: 12px;
-  font-size: 13px;
-}
-
-td {
-  border-bottom: 1px solid #e8edf5;
-  padding: 12px;
-  font-size: 14px;
-}
-
-.remove {
-  background: #ffe7e7;
-  color: #b42318;
-  padding: 8px 12px;
-}
-
-.totais {
-  background: rgba(255,255,255,.97);
-  color: #101827;
-  border-radius: 24px;
-  padding: 24px;
-  margin-bottom: 22px;
-  box-shadow: 0 18px 50px rgba(0,0,0,.22);
-}
-
-.totais div {
-  display: flex;
-  justify-content: space-between;
-  padding: 14px 0;
-  border-bottom: 1px solid #e8edf5;
-  text-transform: uppercase;
-  font-size: 14px;
-}
-
-.totais .grand {
-  border-bottom: 0;
-  font-size: 20px;
-  color: #07265c;
-}
-
-.check {
-  margin: 20px 0;
-  flex-direction: row;
-  align-items: flex-start;
-  line-height: 1.4;
-}
-
-.check input {
-  margin-top: 2px;
-}
-
-.submit {
-  width: 100%;
-  padding: 16px;
-  font-size: 17px;
-  background: linear-gradient(135deg, #20d68b, #12b76a);
-}
-
-.success-card {
-  max-width: 720px;
-  margin: 80px auto;
-  background: #fff;
-  color: #101827;
-  padding: 42px;
-  border-radius: 28px;
-  text-align: center;
-}
-
-.success-card h1 {
-  color: #07265c;
-}
-
-.success-card a {
-  display: inline-block;
-  margin-top: 20px;
-  background: #20d68b;
-  color: #04111f;
-  padding: 14px 18px;
-  border-radius: 14px;
-  font-weight: 900;
-  text-decoration: none;
-}
-
-@media (max-width: 850px) {
-  .hero h1 {
-    font-size: 28px;
+  function adicionarItem() {
+    if (!novo.nome_item || !novo.quantidade || !novo.valor_unitario) { setErro('Preencha item, quantidade e valor.'); return; }
+    setErro('');
+    const qtd = Number(novo.quantidade);
+    const val = Number(String(novo.valor_unitario).replace(',', '.'));
+    setItens(p => [...p, { categoria: novo.categoria, nome_item: novo.nome_item, quantidade: qtd, valor_unitario: val, total: qtd * val }]);
+    setNovo(p => ({ ...p, nome_item: '', quantidade: '1', valor_unitario: '' }));
   }
 
-  .grid,
-  .item-box {
-    grid-template-columns: 1fr;
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault();
+    setErro('');
+    if (!form.consentimento_lgpd) { setErro('Aceite o consentimento LGPD para continuar.'); return; }
+    if (!form.nome_responsavel || !form.email || !form.nome_projeto) { setErro('Preencha nome, e-mail e nome do projeto.'); return; }
+    if (!supabase) { setErro('Erro de configuração.'); return; }
+    setEnviando(true);
+
+    const { data, error } = await supabase
+      .from('simulacoes_projeto')
+      .insert({ ...form, duracao_meses: Number(form.duracao_meses || 12), total_atividade_fim: totalFim, total_atividade_meio: totalMeio, total_geral: totalGeral })
+      .select('id').single();
+
+    if (error) { setErro('Erro ao enviar. Tente novamente.'); setEnviando(false); return; }
+    if (itens.length > 0 && data) {
+      await supabase.from('simulacao_itens').insert(itens.map(i => ({ simulacao_id: data.id, ...i })));
+    }
+    setSucesso(true); setEnviando(false);
   }
 
-  .card,
-  .hero {
-    padding: 22px;
-    border-radius: 20px;
-  }
+  if (sucesso) return (
+    <PortalShell portal="empresa">
+      <div className="flex min-h-[70vh] items-center justify-center">
+        <div className="max-w-lg rounded-[2rem] border border-slate-200 bg-white p-12 text-center shadow-xl">
+          <CheckCircle2 size={56} className="mx-auto text-emerald-500" />
+          <h2 className="mt-5 text-2xl font-black text-slate-950">Simulação enviada!</h2>
+          <p className="mt-3 text-sm font-bold text-slate-500">
+            Projeto <strong>{form.nome_projeto}</strong> recebido.<br />
+            Nossa equipe entrará em contato pelo e-mail <strong>{form.email}</strong>.
+          </p>
+          <button
+            type="button"
+            onClick={() => { setSucesso(false); setForm({ nome_responsavel: '', email: '', telefone: '', entidade: '', cnpj: '', cidade: '', estado: '', nome_projeto: '', tipo_projeto: '', modalidade: '', tipo_lei: 'Lei Federal', duracao_meses: '12', local_execucao: '', observacoes: '', consentimento_lgpd: false }); setItens([]); }}
+            className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-[#0068ff] via-[#13b8a6] to-[#16c784] px-6 py-3 text-sm font-black text-white"
+          >
+            Nova simulação
+          </button>
+        </div>
+      </div>
+    </PortalShell>
+  );
 
-  .sim-page {
-    padding: 22px 12px;
-  }
+  return (
+    <PortalShell portal="empresa">
+      <div className="mx-auto max-w-3xl space-y-7">
+
+        {/* HEADER */}
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.28em] text-[#0068ff]">Portal Empresa</p>
+          <h1 className="mt-2 text-4xl font-black tracking-[-0.05em] text-slate-950">Simulador de Projeto</h1>
+          <p className="mt-1 text-sm font-bold text-slate-500">
+            Preencha os dados abaixo e simule uma estimativa inicial do seu projeto esportivo incentivado.
+          </p>
+        </div>
+
+        <form onSubmit={enviar} className="space-y-7">
+
+          {/* DADOS DO RESPONSÁVEL */}
+          <Card title="Dados do responsável">
+            <div className="grid gap-5 md:grid-cols-2">
+              <Field label="Nome do responsável *">
+                <input value={form.nome_responsavel} onChange={f('nome_responsavel')} placeholder="Nome completo" className={inputCls} />
+              </Field>
+              <Field label="E-mail *">
+                <input type="email" value={form.email} onChange={f('email')} placeholder="email@empresa.com" className={inputCls} />
+              </Field>
+              <Field label="Telefone / WhatsApp">
+                <input value={form.telefone} onChange={f('telefone')} placeholder="(00) 00000-0000" className={inputCls} />
+              </Field>
+              <Field label="Entidade / organização">
+                <input value={form.entidade} onChange={f('entidade')} placeholder="Razão social" className={inputCls} />
+              </Field>
+              <Field label="CNPJ">
+                <input value={form.cnpj} onChange={f('cnpj')} placeholder="00.000.000/0001-00" className={inputCls} />
+              </Field>
+              <Field label="Cidade">
+                <input value={form.cidade} onChange={f('cidade')} placeholder="Cidade" className={inputCls} />
+              </Field>
+              <Field label="Estado">
+                <select value={form.estado} onChange={f('estado')} className={selectCls}>
+                  <option value="">Selecione</option>
+                  {UFS.map(uf => <option key={uf}>{uf}</option>)}
+                </select>
+              </Field>
+            </div>
+          </Card>
+
+          {/* DETALHES DO PROJETO */}
+          <Card title="Detalhes do projeto">
+            <div className="grid gap-5 md:grid-cols-2">
+              <Field label="Nome do projeto *">
+                <input value={form.nome_projeto} onChange={f('nome_projeto')} placeholder="Ex: Projeto Esporte e Cidadania 2026" className={inputCls} />
+              </Field>
+              <Field label="Tipo de projeto">
+                <select value={form.tipo_projeto} onChange={f('tipo_projeto')} className={selectCls}>
+                  <option value="">Selecione</option>
+                  {['Projeto esportivo','Projeto paradesportivo','Evento esportivo','Formação esportiva','Rendimento esportivo'].map(o => <option key={o}>{o}</option>)}
+                </select>
+              </Field>
+              <Field label="Modalidade esportiva">
+                <input value={form.modalidade} onChange={f('modalidade')} placeholder="Ex: Futebol, Natação, Atletismo..." className={inputCls} />
+              </Field>
+              <Field label="Tipo de lei">
+                <select value={form.tipo_lei} onChange={f('tipo_lei')} className={selectCls}>
+                  {['Lei Federal','Lei Estadual','Lei Municipal'].map(o => <option key={o}>{o}</option>)}
+                </select>
+              </Field>
+              <Field label="Duração (meses)">
+                <input type="number" min="1" max="60" value={form.duracao_meses} onChange={f('duracao_meses')} className={inputCls} />
+              </Field>
+              <Field label="Local de execução">
+                <select value={form.local_execucao} onChange={f('local_execucao')} className={selectCls}>
+                  <option value="">Selecione</option>
+                  {['Próprio','Cedido','Alugado','A definir'].map(o => <option key={o}>{o}</option>)}
+                </select>
+              </Field>
+            </div>
+          </Card>
+
+          {/* ITENS DA SIMULAÇÃO */}
+          <Card title="Itens da simulação">
+            <p className="mb-5 text-xs font-bold text-slate-500">Adicione os itens de custo previstos para estimar o valor total do projeto.</p>
+
+            {/* formulário de item */}
+            <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
+              <div className="grid gap-4 md:grid-cols-[1.5fr_1.5fr_.7fr_.9fr]">
+                <Field label="Categoria">
+                  <select value={novo.categoria} onChange={e => setNovo(p => ({ ...p, categoria: e.target.value, nome_item: '' }))} className={selectCls}>
+                    {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </Field>
+                <Field label="Item">
+                  <input
+                    list="sugestoes"
+                    value={novo.nome_item}
+                    onChange={e => setNovo(p => ({ ...p, nome_item: e.target.value }))}
+                    placeholder="Ex: Professor, uniforme..."
+                    className={inputCls}
+                  />
+                  <datalist id="sugestoes">
+                    {(SUGESTOES[novo.categoria] || []).map(s => <option key={s} value={s} />)}
+                  </datalist>
+                </Field>
+                <Field label="Qtd">
+                  <input type="number" min="1" value={novo.quantidade} onChange={e => setNovo(p => ({ ...p, quantidade: e.target.value }))} className={inputCls} />
+                </Field>
+                <Field label="Valor unit. (R$)">
+                  <input value={novo.valor_unitario} onChange={e => setNovo(p => ({ ...p, valor_unitario: e.target.value }))} placeholder="1.500,00" className={inputCls} />
+                </Field>
+              </div>
+              {erro && <p className="mt-3 text-xs font-black text-red-600">{erro}</p>}
+              <button
+                type="button"
+                onClick={adicionarItem}
+                className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-[#0068ff] via-[#13b8a6] to-[#16c784] px-5 py-3 text-sm font-black text-white shadow-[0_12px_30px_rgba(0,104,255,0.2)] transition hover:-translate-y-0.5"
+              >
+                <Plus size={16} /> Incluir item
+              </button>
+            </div>
+
+            {/* tabela de itens */}
+            {itens.length > 0 && (
+              <div className="mt-5 overflow-hidden rounded-[1.5rem] border border-slate-200">
+                <div className="hidden grid-cols-[1.4fr_1fr_.5fr_.8fr_.8fr_.4fr] bg-slate-50 px-5 py-3 text-xs font-black uppercase tracking-[0.14em] text-slate-500 md:grid">
+                  <span>Categoria</span><span>Item</span><span>Qtd</span><span>Unit.</span><span>Total</span><span></span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {itens.map((item, i) => (
+                    <div key={i} className="grid grid-cols-[1.4fr_1fr_.5fr_.8fr_.8fr_.4fr] items-center px-5 py-4 text-sm">
+                      <p className="truncate text-xs font-bold text-slate-500">{item.categoria}</p>
+                      <p className="font-black text-slate-950">{item.nome_item}</p>
+                      <p className="font-bold text-slate-700">{item.quantidade}</p>
+                      <p className="font-bold text-slate-700">{fmt(item.valor_unitario)}</p>
+                      <p className="font-black text-[#0068ff]">{fmt(item.total)}</p>
+                      <button type="button" onClick={() => setItens(p => p.filter((_, j) => j !== i))}
+                        className="grid h-8 w-8 place-items-center rounded-xl bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* totais */}
+            {itens.length > 0 && (
+              <div className="mt-5 space-y-2 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
+                {[
+                  { label: 'Atividade fim', value: totalFim },
+                  { label: 'Atividade meio', value: totalMeio },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex items-center justify-between border-b border-slate-200 pb-2">
+                    <span className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">{label}</span>
+                    <span className="text-sm font-black text-slate-700">{fmt(value)}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-sm font-black uppercase tracking-[0.12em] text-slate-950">Total estimado</span>
+                  <span className="text-2xl font-black text-[#0068ff]">{fmt(totalGeral)}</span>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* OBSERVAÇÕES + LGPD */}
+          <Card title="Observações e envio">
+            <div className="space-y-5">
+              <Field label="Observações">
+                <textarea
+                  value={form.observacoes}
+                  onChange={f('observacoes')}
+                  rows={4}
+                  placeholder="Objetivo do projeto, público atendido e informações relevantes..."
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#0068ff] focus:bg-white"
+                />
+              </Field>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <input
+                  type="checkbox"
+                  checked={form.consentimento_lgpd}
+                  onChange={e => setForm(p => ({ ...p, consentimento_lgpd: e.target.checked }))}
+                  className="mt-0.5 h-5 w-5 accent-[#0068ff]"
+                />
+                <span className="text-sm font-bold text-slate-700">
+                  Autorizo o contato e o tratamento dos meus dados conforme a LGPD.
+                </span>
+              </label>
+
+              {erro && (
+                <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-black text-red-600">{erro}</div>
+              )}
+
+              <button
+                type="submit"
+                disabled={enviando}
+                className="h-14 w-full rounded-2xl bg-gradient-to-r from-[#0068ff] via-[#13b8a6] to-[#16c784] font-black text-white shadow-[0_18px_45px_rgba(0,104,255,0.28)] transition hover:-translate-y-0.5 disabled:opacity-60"
+              >
+                {enviando ? 'Enviando...' : 'Enviar simulação'}
+              </button>
+            </div>
+          </Card>
+
+          <div className="pb-8" />
+        </form>
+      </div>
+    </PortalShell>
+  );
 }
-`;

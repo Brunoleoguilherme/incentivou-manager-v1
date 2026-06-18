@@ -14,7 +14,10 @@ const metricsByPortal = {
 export default function PortalDashboard({ portal }: { portal: PortalType }) {
   const config = portalConfig[portal];
   const metrics = metricsByPortal[portal];
-  const kanbanHref = portal === 'empresa' ? '/marketplace' : `/${portal}/kanban`;
+  const kanbanHref =
+    portal === 'empresa' ? '/marketplace' :
+    portal === 'executor' ? '/executor/projetos' :
+    '/admin/kanban';
 
   return (
     <PortalShell portal={portal}>

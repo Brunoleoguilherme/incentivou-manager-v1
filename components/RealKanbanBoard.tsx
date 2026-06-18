@@ -141,6 +141,10 @@ export default function RealKanbanBoard({ portal = 'admin' }: { portal?: PortalT
   const [anotacoes, setAnotacoes] = useState<Anotacao[]>([]);
   const [novaAnotacao, setNovaAnotacao] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+  const [anotacaoEditandoId, setAnotacaoEditandoId] = useState<string | null>(null);
+  const [textoEdicaoAnotacao, setTextoEdicaoAnotacao] = useState('');
+  const [savingEditNote, setSavingEditNote] = useState(false);
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
 
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [novoChecklistItem, setNovoChecklistItem] = useState('');
@@ -221,65 +225,83 @@ export default function RealKanbanBoard({ portal = 'admin' }: { portal?: PortalT
   );
 
   async function moveCard(cardId: string, colunaId: string) {
-    if (!supabase) return;
+  if (!supabase) return;
 
-    const { error } = await supabase
-      .from('manager_kanban_cards')
-      .update({
-        coluna_id: colunaId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', cardId);
+  const cardAtual = cards.find((c) => c.id === cardId);
+  if (!cardAtual) return;
 
-    if (error) {
-      setError(error.message);
-      return;
+  const mudandoColuna = cardAtual.coluna_id !== colunaId;
+
+  if (mudandoColuna) {
+    const completo = await checklistCompleto(cardId);
+
+    if (!completo) {
+      const continuar = window.confirm(
+        'O checklist desta etapa ainda não está completo.\nDeseja avançar mesmo assim?'
+      );
+      if (!continuar) return;
     }
-
-    setCards((prev) =>
-      prev.map((card) => (card.id === cardId ? { ...card, coluna_id: colunaId } : card))
-    );
   }
 
-  function abrirNovoLead(colunaId: string) {
-    setLeadColumnId(colunaId);
-    setLeadForm(leadInicial);
-    setShowLeadModal(true);
+  const { error } = await supabase
+    .from('manager_kanban_cards')
+    .update({
+      coluna_id: colunaId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', cardId);
+
+  if (error) {
+    setError(error.message);
+    return;
   }
 
-  async function adicionarCartaoNaColuna(colunaId: string) {
-    if (!supabase || !activeBoard) return;
+  // Ao entrar em Execução Segura, substitui o checklist pelos itens da fase
+  if (mudandoColuna) {
+    const colunaDestino = columns.find((c) => c.id === colunaId);
+    if (colunaDestino) {
+      const nomeNormalizado = colunaDestino.nome
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, '_');
 
-    if (activeBoard.tipo === 'crm_comercial') {
-      abrirNovoLead(colunaId);
-      return;
+      const CHECKLISTS_POR_COLUNA: Record<string, string[]> = {
+        execucao_segura: [
+          'Recurso Liberado',
+          'Kick-off Execução',
+          'Manual de Execução Entregue',
+          'Checklist Mensal',
+          'Registro de Orientações',
+          'Monitoramento Contínuo',
+          'Prestação Parcial',
+        ],
+      };
+
+      const itens = CHECKLISTS_POR_COLUNA[nomeNormalizado];
+      if (itens) {
+        await supabase.from('manager_card_checklist').delete().eq('card_id', cardId);
+        await supabase.from('manager_card_checklist').insert(
+          itens.map((titulo, index) => ({
+            card_id: cardId,
+            titulo,
+            concluido: false,
+            ordem: index + 1,
+          }))
+        );
+        if (selectedCard?.id === cardId) {
+          await carregarChecklist(cardId);
+        }
+      }
     }
-
-    const titulo = window.prompt('Título do cartão:');
-    if (!titulo?.trim()) return;
-
-    const { data, error } = await supabase
-      .from('manager_kanban_cards')
-      .insert({
-        board_id: activeBoard.id,
-        coluna_id: colunaId,
-        titulo: titulo.trim(),
-        descricao: 'Card criado diretamente no fluxo operacional.',
-        prioridade: 'media',
-        status: 'ativo',
-        prazo: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
-        ordem: 1,
-      })
-      .select('*')
-      .single();
-
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    setCards((prev) => [data as Card, ...prev]);
   }
+
+  setCards((prev) =>
+    prev.map((card) =>
+      card.id === cardId ? { ...card, coluna_id: colunaId } : card
+    )
+  );
+}
 
   async function criarLead(e: React.FormEvent) {
     e.preventDefault();
@@ -366,6 +388,19 @@ export default function RealKanbanBoard({ portal = 'admin' }: { portal?: PortalT
     setShowLeadModal(false);
     setSavingLead(false);
   }
+
+async function checklistCompleto(cardId: string) {
+  if (!supabase) return true;
+
+  const { data } = await supabase
+    .from('manager_card_checklist')
+    .select('*')
+    .eq('card_id', cardId);
+
+  if (!data?.length) return true; // sem checklist = pode mover
+
+  return data.every((item) => item.concluido);
+}
 
   async function abrirCard(card: Card) {
     setSelectedCard(card);
@@ -479,6 +514,63 @@ export default function RealKanbanBoard({ portal = 'admin' }: { portal?: PortalT
     setSavingNote(false);
   }
 
+  function iniciarEditarAnotacao(anotacao: Anotacao) {
+  setAnotacaoEditandoId(anotacao.id);
+  setTextoEdicaoAnotacao(anotacao.anotacao || '');
+}
+
+function cancelarEditarAnotacao() {
+  setAnotacaoEditandoId(null);
+  setTextoEdicaoAnotacao('');
+}
+
+async function salvarEdicaoAnotacao(anotacaoId: string) {
+  if (!supabase || !selectedCard || !textoEdicaoAnotacao.trim()) return;
+
+  setSavingEditNote(true);
+
+  const { error } = await supabase
+    .from('manager_card_anotacoes')
+    .update({
+      anotacao: textoEdicaoAnotacao.trim(),
+    })
+    .eq('id', anotacaoId);
+
+  if (error) {
+    setError(error.message);
+    setSavingEditNote(false);
+    return;
+  }
+
+  setAnotacaoEditandoId(null);
+  setTextoEdicaoAnotacao('');
+  await carregarAnotacoes(selectedCard.id);
+  setSavingEditNote(false);
+}
+
+async function excluirAnotacao(anotacaoId: string) {
+  if (!supabase || !selectedCard) return;
+
+  const confirmar = window.confirm('Deseja realmente excluir este comentário?');
+  if (!confirmar) return;
+
+  setDeletingNoteId(anotacaoId);
+
+  const { error } = await supabase
+    .from('manager_card_anotacoes')
+    .delete()
+    .eq('id', anotacaoId);
+
+  if (error) {
+    setError(error.message);
+    setDeletingNoteId(null);
+    return;
+  }
+
+  await carregarAnotacoes(selectedCard.id);
+  setDeletingNoteId(null);
+}
+
   async function adicionarChecklistItem() {
     if (!supabase || !selectedCard || !novoChecklistItem.trim()) return;
 
@@ -580,6 +672,31 @@ export default function RealKanbanBoard({ portal = 'admin' }: { portal?: PortalT
     setMembroUsuarioId('');
     await Promise.all([carregarMembros(selectedCard.id), carregarAnotacoes(selectedCard.id)]);
   }
+
+  async function criarChecklistPadraoEsporte360(cardId: string) {
+  if (!supabase) return;
+
+  const itensPadrao = [
+    'Análise Prévia',
+    'Reunião Técnica',
+    'Checklist Legal',
+    'Parecer Técnico',
+    'Decisão Final',
+  ];
+
+  const { error } = await supabase.from('manager_card_checklist').insert(
+    itensPadrao.map((titulo, index) => ({
+      card_id: cardId,
+      titulo,
+      concluido: false,
+      ordem: index + 1,
+    }))
+  );
+
+  if (error) {
+    setError(error.message);
+  }
+}
 
   async function converterVendaParaOperacao(e: React.FormEvent) {
     e.preventDefault();
@@ -702,6 +819,13 @@ export default function RealKanbanBoard({ portal = 'admin' }: { portal?: PortalT
       return;
     }
 
+    if (
+  boardDestino.nome === 'Esporte 360°' &&
+  primeiraColuna.nome === 'Diagnóstico'
+) {
+  await criarChecklistPadraoEsporte360(novoCard.id);
+}
+
     await supabase
       .from('manager_kanban_cards')
       .update({
@@ -772,6 +896,43 @@ export default function RealKanbanBoard({ portal = 'admin' }: { portal?: PortalT
 
   function getColumnName(id: string) {
     return columns.find((column) => column.id === id)?.nome || 'Sem etapa';
+  }
+
+  async function adicionarCartaoNaColuna(colunaId: string) {
+    if (!supabase || !activeBoard) return;
+
+    // Board CRM: abre modal de lead
+    if (activeBoard.tipo === 'crm_comercial') {
+      setLeadColumnId(colunaId);
+      setLeadForm(leadInicial);
+      setShowLeadModal(true);
+      return;
+    }
+
+    // Outros boards: cria card simples
+    const titulo = window.prompt('Título do cartão:');
+    if (!titulo?.trim()) return;
+
+    const { data: novoCard, error } = await supabase
+      .from('manager_kanban_cards')
+      .insert({
+        board_id: activeBoard.id,
+        coluna_id: colunaId,
+        titulo: titulo.trim(),
+        prioridade: 'media',
+        status: 'ativo',
+        prazo: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+        ordem: 1,
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    setCards((prev) => [novoCard as Card, ...prev]);
   }
 
   const isVendaFechada =
@@ -938,6 +1099,15 @@ export default function RealKanbanBoard({ portal = 'admin' }: { portal?: PortalT
           membros={membros}
           membroUsuarioId={membroUsuarioId}
           setMembroUsuarioId={setMembroUsuarioId}
+          anotacaoEditandoId={anotacaoEditandoId}
+textoEdicaoAnotacao={textoEdicaoAnotacao}
+setTextoEdicaoAnotacao={setTextoEdicaoAnotacao}
+savingEditNote={savingEditNote}
+deletingNoteId={deletingNoteId}
+onEditAnotacao={iniciarEditarAnotacao}
+onCancelEditAnotacao={cancelarEditarAnotacao}
+onSaveEditAnotacao={salvarEdicaoAnotacao}
+onDeleteAnotacao={excluirAnotacao}
           onAddMembro={adicionarMembro}
         />
       )}
@@ -959,6 +1129,7 @@ export default function RealKanbanBoard({ portal = 'admin' }: { portal?: PortalT
         setProjetoForm={setProjetoForm}
         produtoDestinoBoardId={produtoDestinoBoardId}
         setProdutoDestinoBoardId={setProdutoDestinoBoardId}
+      
       />
     </PortalShell>
   );

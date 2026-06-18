@@ -28,10 +28,20 @@ const menu = [
   { label: "Financeiro", href: "/financeiro", icon: Wallet },
   { label: "Modelos e Downloads", href: "/documentos", icon: FolderDown },
   { label: "IncentiVou Academy", href: "/academy", icon: GraduationCap },
-  { label: "Marketplace", href: "/marketplace", icon: Store },
+  {
+  label: 'Documentos',
+  href: '/executor/documentos',
+  icon: FileText,
+},
+{
+  label: 'Execução Segura',
+  href: '/executor/execucao',
+  icon: ShieldCheck,
+},
+  { label: "Marketplace", href: "/empresa/marketplace", icon: Store },
   { label: "ESG e Impacto", href: "/esg", icon: BarChart3 },
   { label: "Jurídico", href: "/juridico", icon: Scale },
-  { label: "Relatórios", href: "/relatorios", icon: FileText },
+  { label: "Relatórios", href: "/admin/relatorios", icon: FileText },
   { label: "Configurações", href: "/configuracoes", icon: Settings },
 ];
 

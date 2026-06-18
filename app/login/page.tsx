@@ -2,113 +2,183 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useState, Suspense } from 'react';
 import { Lock, Mail } from 'lucide-react';
-import { demoUsers } from '@/lib/kanbanData';
+import { createClient } from '@supabase/supabase-js';
 
-export default function LoginPage() {
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+const portalLabels: Record<string, string> = {
+  admin: 'Portal Admin',
+  executor: 'Portal Executor',
+  empresa: 'Portal Empresa',
+};
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const portalParam = searchParams.get('portal') || 'admin';
+  const portalAtual = ['admin', 'executor', 'empresa'].includes(portalParam)
+    ? portalParam
+    : 'admin';
 
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  function entrar(e: React.FormEvent<HTMLFormElement>) {
+  async function entrar(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    setErro('');
+    setLoading(true);
 
-    const usuario = demoUsers.find(
-      (u) => u.email === email && u.senha === senha
-    );
+    const { data: usuario, error } = await supabase
+      .from('manager_usuarios')
+      .select('*')
+      .eq('email', email.trim().toLowerCase())
+      .eq('senha', senha)
+      .eq('status', 'ativo')
+      .single();
 
-    if (!usuario) {
-      setErro('E-mail ou senha inválidos.');
+    if (error || !usuario) {
+      setErro('E-mail ou senha invalidos.');
+      setLoading(false);
+      return;
+    }
+
+    if (usuario.perfil !== portalAtual) {
+      setErro(`Este usuario nao pertence ao ${portalLabels[portalAtual]}.`);
+      setLoading(false);
       return;
     }
 
     localStorage.setItem(
       'incentivou_usuario',
-      JSON.stringify(usuario)
+      JSON.stringify({
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email,
+        perfil: usuario.perfil,
+        portal: usuario.perfil,
+        status: usuario.status,
+      })
     );
 
-    router.push(`/${usuario.portal}`);
+    router.push(`/${usuario.perfil}`);
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[linear-gradient(135deg,#061b3a,#0a234d)] p-6">
-      <div className="w-full max-w-md rounded-[2rem] bg-white p-8 shadow-2xl">
-        <div className="mb-8 flex justify-center">
-          <Image
-            src="/incentivou-logo.png"
-            alt="IncentiVou"
-            width={220}
-            height={70}
-            priority
+    <div className="relative z-10 w-full max-w-md rounded-[2rem] border border-white bg-white/90 p-8 shadow-[0_30px_90px_rgba(6,27,58,0.18)] backdrop-blur-xl">
+      <div className="mb-6 flex justify-center">
+        <Image
+          src="/incentivou-logo.png"
+          alt="IncentiVou"
+          width={260}
+          height={80}
+          priority
+          className="h-auto w-[230px] object-contain"
+        />
+      </div>
+
+      <p className="text-center text-xs font-black uppercase tracking-[0.28em] text-[#16c784]">
+        {portalLabels[portalAtual]}
+      </p>
+
+      <h1 className="mt-3 text-center text-4xl font-black text-[#061b3a]">
+        Login
+      </h1>
+
+      <p className="mt-2 text-center text-sm font-semibold text-[#40516b]">
+        Acesso ao sistema IncentiVou Manager
+      </p>
+
+      <form onSubmit={entrar} className="mt-8 space-y-4">
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4">
+          <Mail size={18} className="text-[#061b3a]" />
+          <input
+            type="email"
+            placeholder="E-mail"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="h-12 w-full bg-transparent font-semibold outline-none"
+            required
           />
         </div>
 
-        <h1 className="text-center text-4xl font-black text-[#061b3a]">
-          Login
-        </h1>
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4">
+          <Lock size={18} className="text-[#061b3a]" />
+          <input
+            type="password"
+            placeholder="Senha"
+            value={senha}
+            onChange={(e) => setSenha(e.target.value)}
+            className="h-12 w-full bg-transparent font-semibold outline-none"
+            required
+          />
+        </div>
 
-        <p className="mt-2 text-center text-slate-500">
-          Acesso ao sistema IncentiVou
-        </p>
+        {erro && (
+          <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
+            {erro}
+          </p>
+        )}
 
-        <form onSubmit={entrar} className="mt-8 space-y-4">
-          <div className="flex items-center gap-3 rounded-xl border border-slate-200 px-4">
-            <Mail size={18} />
-            <input
-              type="email"
-              placeholder="E-mail"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="h-12 w-full outline-none"
-            />
-          </div>
-
-          <div className="flex items-center gap-3 rounded-xl border border-slate-200 px-4">
-            <Lock size={18} />
-            <input
-              type="password"
-              placeholder="Senha"
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              className="h-12 w-full outline-none"
-            />
-          </div>
-
-          {erro && (
-            <p className="text-sm font-bold text-red-500">
-              {erro}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            className="h-12 w-full rounded-xl bg-[#16c784] font-black text-white"
-          >
-            Entrar
-          </button>
-        </form>
-
-        <div className="my-8 border-t" />
-
-        <h3 className="text-center text-2xl font-black text-[#061b3a]">
-          Não possui acesso?
-        </h3>
-
-        <Link
-          href="/solicitar-acesso"
-          className="mt-4 flex h-12 items-center justify-center rounded-xl bg-[#061b3a] font-black text-white"
+        <button
+          type="submit"
+          disabled={loading}
+          className="h-12 w-full rounded-xl bg-gradient-to-r from-[#0068ff] via-[#13b8a6] to-[#16c784] font-black text-white shadow-[0_16px_38px_rgba(19,184,166,0.25)] disabled:opacity-60"
         >
-          Solicitar acesso
-        </Link>
+          {loading ? 'Entrando...' : 'Entrar'}
+        </button>
+      </form>
 
-        <p className="mt-4 text-center text-sm text-slate-500">
-          Sua solicitação será analisada pela equipe da IncentiVou.
-        </p>
-      </div>
+      <div className="my-7 border-t border-slate-200" />
+
+      <h3 className="text-center text-xl font-black text-[#061b3a]">
+        Nao possui acesso?
+      </h3>
+
+      <Link
+        href="/solicitar-acesso"
+        className="mt-4 flex h-12 items-center justify-center rounded-xl bg-[#061b3a] font-black text-white"
+      >
+        Solicitar acesso
+      </Link>
+
+      <Link
+        href="/"
+        className="mt-4 block text-center text-sm font-bold text-[#40516b] hover:text-[#16c784]"
+      >
+        Voltar para escolha de portal
+      </Link>
+
+      <p className="mt-8 text-center text-[10px] font-semibold text-slate-400">
+        v4.0.0
+      </p>
+    </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f5f9ff] px-4 py-6 text-[#061b3a]">
+      <Image
+        src="/bg-acesso2.png"
+        alt=""
+        fill
+        priority
+        className="object-cover object-center opacity-70"
+      />
+      <div className="absolute inset-0 bg-white/45" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.92)_0%,rgba(255,255,255,0.70)_45%,rgba(245,249,255,0.48)_100%)]" />
+      <Suspense fallback={<div className="text-sm font-bold text-slate-400">Carregando...</div>}>
+        <LoginForm />
+      </Suspense>
     </main>
   );
 }

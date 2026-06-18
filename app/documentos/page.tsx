@@ -1,3 +1,8 @@
-import ModulePage from '@/components/ModulePage';
-export default function Page(){return <ModulePage title="Modelos, Planilhas e Downloads" subtitle="Biblioteca IncentiVou com planilhas, documentos jurídicos, e-books, guias, modelos de projeto e materiais comerciais para download." downloads items={['Planilhas modelo de despesas','Planilhas de prestação de contas','Contratos e termos jurídicos','Modelos de projeto técnico','Propostas comerciais para empresas','Relatórios ESG','Controle de versões','Duplicar modelo para projeto']} kpis={[[ 'Arquivos modelo','86'],['Downloads','1.930'],['E-books','24'],['Templates premium','18']]}/>}
-
+'use client';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+export default function Page() {
+  const router = useRouter();
+  useEffect(() => { router.replace('/executor/documentos'); }, [router]);
+  return null;
+}
